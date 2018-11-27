@@ -1,6 +1,5 @@
 mod lexer;
 mod parser;
-mod util;
 mod eval;
 mod simple_types;
 
@@ -13,18 +12,30 @@ fn main() {
     let mut buf = String::new();
     loop {
         print!("> ");
-        stdout.flush();
+        stdout.flush().unwrap();
         buf.clear();
-        stdin.read_line(&mut buf);
+        stdin.read_line(&mut buf).unwrap();
         let toks = match lexer::lex(buf.as_str()) {
             Ok(v) => v,
-            Err(e) => panic!("{:?}", e),
+            Err(e) => {
+                eprintln!("lex error: {:?}", e);
+                continue;
+            }
         };
         let instrs = match parser::parse_expr(toks) {
             Ok(v) => v,
-            Err(e) => panic!("{:?}", e),
+            Err(e) => {
+                eprintln!("parse error: {:?}", e);
+                continue;
+            }
         };
-        let out = eval::eval_expr(instrs);
+        let out = match eval::eval_expr(instrs) {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!("eval error: {:?}", e);
+                continue;
+            }
+        };
         println!("{:?}", out);
     }
 }

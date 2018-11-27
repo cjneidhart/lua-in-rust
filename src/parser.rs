@@ -74,6 +74,14 @@ impl Parser {
                 self.next();
                 self.parse_concat()?;
                 self.push(Instr::GreaterEqual);
+            } else if let Some(Token::Equal) = self.lookahead {
+                self.next();
+                self.parse_concat()?;
+                self.push(Instr::Equal);
+            } else if let Some(Token::NotEqual) = self.lookahead {
+                self.next();
+                self.parse_concat()?;
+                self.push(Instr::NotEqual);
             } else {
                 break;
             }
@@ -152,15 +160,15 @@ impl Parser {
         //let lookahead = &self.lookahead;
         if let Some(Token::Not) = self.lookahead {
             self.next();
-            self.parse_pow()?;
+            self.parse_unary()?;
             self.push(Instr::Not);
         } else if let Some(Token::Hash) = self.lookahead {
             self.next();
-            self.parse_pow()?;
+            self.parse_unary()?;
             self.push(Instr::Length);
         } else if let Some(Token::Minus) = self.lookahead {
             self.next();
-            self.parse_pow()?;
+            self.parse_unary()?;
             self.push(Instr::Negate);
         } else {
             self.parse_pow()?;
@@ -287,6 +295,17 @@ mod tests {
     fn test5() {
         let input = vec![LiteralNumber(2.0), Caret, Minus, LiteralNumber(3.0), Eof];
         let output = vec![PushNum(2.0), PushNum(3.0), Negate, Pow];
+        assert_eq!(parse_expr(input).unwrap(), output);
+    }
+
+    #[test]
+    fn test6() {
+        let input = vec![Token::Not, Token::Not, LiteralNumber(1.0), Eof];
+        let output = vec![PushNum(1.0), Instr::Not, Instr::Not];
+        check_it(input, output);
+    }
+
+    fn check_it(input: Vec<Token>, output: Vec<Instr>) {
         assert_eq!(parse_expr(input).unwrap(), output);
     }
 }
