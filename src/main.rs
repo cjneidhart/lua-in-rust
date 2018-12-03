@@ -1,15 +1,18 @@
-mod lexer;
-mod parser;
-mod eval;
-mod simple_types;
+extern crate lua;
 
+use std::collections::HashMap;
 use std::io;
 use std::io::Write;
+
+use lua::lexer;
+use lua::parser;
+use lua::eval;
 
 fn main() {
     let stdin = io::stdin();
     let mut stdout = io::stdout();
     let mut buf = String::new();
+    let mut env = HashMap::new();
     loop {
         print!("> ");
         stdout.flush().unwrap();
@@ -22,20 +25,13 @@ fn main() {
                 continue;
             }
         };
-        let instrs = match parser::parse_expr(toks) {
+        let instrs = match parser::parse_stmt(toks) {
             Ok(v) => v,
             Err(e) => {
                 eprintln!("parse error: {:?}", e);
                 continue;
             }
         };
-        let out = match eval::eval_expr(instrs) {
-            Ok(v) => v,
-            Err(e) => {
-                eprintln!("eval error: {:?}", e);
-                continue;
-            }
-        };
-        println!("{:?}", out);
+        eval::eval_stmt(instrs, &mut env).unwrap();
     }
 }

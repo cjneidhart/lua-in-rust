@@ -1,7 +1,7 @@
 use std::result;
 
-use simple_types::Token;
-use simple_types::Instr;
+use token::Token;
+use instr::Instr;
 
 #[derive(Debug)]
 pub enum ParseError {
@@ -21,13 +21,44 @@ struct Parser {
 }
 
 impl Parser {
-    /// Parse the input as a single expression.
-    fn parse_expr(mut self) -> Result<Vec<Instr>> {
-        self.parse_logic()?;
+    fn parse_stmt(mut self) -> Result<Vec<Instr>> {
         match self.lookahead {
-            Some(Token::Eof) => Ok(self.output),
-            _ => Err(ParseError::ExprEof),
+            Some(Token::Identifier(_)) => self.parse_assign()?,
+            Some(Token::Print) => self.parse_print()?,
+            _ => {
+                return Err(ParseError::Unsupported);
+            },
+        };
+
+        if let Some(Token::Semi) = self.lookahead {
+            self.next();
         }
+
+        Ok(self.output)
+    }
+
+    fn parse_assign(&mut self) -> Result<()> {
+        let name = match self.next() {
+            Some(Token::Identifier(name)) => name,
+            _ => return Err(ParseError::Other),
+        };
+        self.push(Instr::PushString(name));
+        self.expect(Token::Assign)?;
+        self.parse_expr()?;
+        self.push(Instr::Assign);
+        Ok(())
+    }
+
+    fn parse_print(&mut self) -> Result<()> {
+        self.expect(Token::Print)?;
+        self.parse_expr()?;
+        self.push(Instr::Print);
+        Ok(())
+    }
+
+    /// Parse the input as a single expression.
+    fn parse_expr(&mut self) -> Result<()> {
+        self.parse_logic()
     }
 
     /// Attempt to parse a logical expression. Precedence 7.
@@ -181,7 +212,7 @@ impl Parser {
     ///
     /// `^`
     fn parse_pow(&mut self) -> Result<()> {
-        self.parse_other_exp()?;
+        self.parse_primary()?;
         if let Some(Token::Caret) = self.lookahead {
             self.next();
             self.parse_unary()?;
@@ -200,19 +231,22 @@ impl Parser {
     /// * A literal string
     /// * A function definition
     /// * One of the keywords `nil`, `false` or `true
-    fn parse_other_exp(&mut self) -> Result<()> {
+    fn parse_primary(&mut self) -> Result<()> {
         match self.next() {
             Some(Token::LParen) => {
-                self.next();
-                self.parse_logic()?;
+                self.parse_expr()?;
                 self.expect(Token::RParen)?;
+            }
+            Some(Token::Identifier(name)) => {
+                self.push(Instr::PushString(name));
+                self.push(Instr::GlobalLookup);
             }
             Some(Token::LiteralNumber(n)) => self.push(Instr::PushNum(n)),
             Some(Token::Nil) => self.push(Instr::PushNil),
             Some(Token::False) => self.push(Instr::PushBool(false)),
             Some(Token::True) => self.push(Instr::PushBool(true)),
             Some(Token::LiteralString(s)) => self.push(Instr::PushString(s)),
-            Some(Token::DotDotDot) | Some(Token::Function) | Some(Token::Identifier(_)) => {
+            Some(Token::DotDotDot) | Some(Token::Function) => {
                 return Err(ParseError::Unsupported);
             }
             _ => {
@@ -244,7 +278,7 @@ impl Parser {
     }
 }
 
-pub fn parse_expr(tokens: Vec<Token>) -> result::Result<Vec<Instr>, ParseError> {
+pub fn parse_stmt(tokens: Vec<Token>) -> result::Result<Vec<Instr>, ParseError> {
     let output: Vec<Instr> = Vec::new();
     let mut input: Vec<Token> = tokens.iter().rev().cloned().collect();
     let lookahead = input.pop();
@@ -254,7 +288,7 @@ pub fn parse_expr(tokens: Vec<Token>) -> result::Result<Vec<Instr>, ParseError> 
         lookahead,
     };
 
-    p.parse_expr()
+    p.parse_stmt()
 }
 
 #[cfg(test)]
@@ -265,47 +299,54 @@ mod tests {
 
     #[test]
     fn test1() {
-        let input = vec![LiteralNumber(5.0), Plus, LiteralNumber(6.0), Eof];
-        let out = vec![Instr::PushNum(5.0), Instr::PushNum(6.0), Instr::Add];
-        assert_eq!(parse_expr(input).unwrap(), out);
+        let input = vec![Token::Print, LiteralNumber(5.0), Plus, LiteralNumber(6.0), Eof];
+        let out = vec![PushNum(5.0), PushNum(6.0), Add, Instr::Print];
+        assert_eq!(parse_stmt(input).unwrap(), out);
     }
 
     #[test]
     fn test2() {
-        let input = vec![Minus, LiteralNumber(5.0), Caret, LiteralNumber(2.0), Eof];
-        let out = vec![PushNum(5.0), PushNum(2.0), Pow, Negate];
-        assert_eq!(parse_expr(input).unwrap(), out);
+        let input = vec![Token::Print, Minus, LiteralNumber(5.0), Caret, LiteralNumber(2.0), Eof];
+        let out = vec![PushNum(5.0), PushNum(2.0), Pow, Negate, Instr::Print];
+        assert_eq!(parse_stmt(input).unwrap(), out);
     }
 
     #[test]
     fn test3() {
-        let input = vec![LiteralNumber(5.0), Plus, True, DotDot, LiteralString("hi".to_string()), Eof];
-        let out = vec![PushNum(5.0), PushBool(true), Add, PushString("hi".to_string()), Concat];
-        assert_eq!(parse_expr(input).unwrap(), out);
+        let input = vec![Token::Print, LiteralNumber(5.0), Plus, True, DotDot, LiteralString("hi".to_string()), Eof];
+        let out = vec![PushNum(5.0), PushBool(true), Add, PushString("hi".to_string()), Concat, Instr::Print];
+        assert_eq!(parse_stmt(input).unwrap(), out);
     }
 
     #[test]
     fn test4() {
-        let input = vec![LiteralNumber(1.0), DotDot, LiteralNumber(2.0), Plus, LiteralNumber(3.0), Eof];
-        let output = vec![PushNum(1.0), PushNum(2.0), PushNum(3.0), Add, Concat];
-        assert_eq!(parse_expr(input).unwrap(), output);
+        let input = vec![Token::Print, LiteralNumber(1.0), DotDot, LiteralNumber(2.0), Plus, LiteralNumber(3.0), Eof];
+        let output = vec![PushNum(1.0), PushNum(2.0), PushNum(3.0), Add, Concat, Instr::Print];
+        assert_eq!(parse_stmt(input).unwrap(), output);
     }
 
     #[test]
     fn test5() {
-        let input = vec![LiteralNumber(2.0), Caret, Minus, LiteralNumber(3.0), Eof];
-        let output = vec![PushNum(2.0), PushNum(3.0), Negate, Pow];
-        assert_eq!(parse_expr(input).unwrap(), output);
+        let input = vec![Token::Print, LiteralNumber(2.0), Caret, Minus, LiteralNumber(3.0), Eof];
+        let output = vec![PushNum(2.0), PushNum(3.0), Negate, Pow, Instr::Print];
+        assert_eq!(parse_stmt(input).unwrap(), output);
     }
 
     #[test]
     fn test6() {
-        let input = vec![Token::Not, Token::Not, LiteralNumber(1.0), Eof];
-        let output = vec![PushNum(1.0), Instr::Not, Instr::Not];
+        let input = vec![Token::Print, Token::Not, Token::Not, LiteralNumber(1.0), Eof];
+        let output = vec![PushNum(1.0), Instr::Not, Instr::Not, Instr::Print];
+        check_it(input, output);
+    }
+
+    #[test]
+    fn test7() {
+        let input = vec![Token::Identifier("a".to_string()), Token::Assign, LiteralNumber(5.0), Eof];
+        let output = vec![PushString("a".to_string()), PushNum(5.0), Instr::Assign];
         check_it(input, output);
     }
 
     fn check_it(input: Vec<Token>, output: Vec<Instr>) {
-        assert_eq!(parse_expr(input).unwrap(), output);
+        assert_eq!(parse_stmt(input).unwrap(), output);
     }
 }

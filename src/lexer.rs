@@ -2,8 +2,8 @@
 
 use std::iter::Peekable;
 use std::str::Chars;
-use simple_types::Token;
-use simple_types::Token::*;
+use token::Token;
+use token::Token::*;
 
 
 #[derive(Debug)]
@@ -114,6 +114,7 @@ fn keyword_match(s: String) -> Token {
         "true" => True,
         "until" => Until,
         "while" => While,
+        "print" => Print,
         _ => Identifier(s),
     }
 }

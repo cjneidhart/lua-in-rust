@@ -15,38 +15,8 @@ pub enum Token {
     Identifier(String),
     LiteralNumber(f64),
     LiteralString(String),
-    Eof
-}
+    Eof,
 
-#[derive(Debug, PartialEq)]
-pub enum Instr {
-    // values
-    PushNil,
-    PushBool(bool),
-    PushNum(f64),
-    PushString(String),
-    PushTable,
-    // In: table, key, value
-    // Out: table
-    TableAssign,
-    // binary operators
-    Add,
-    Subtract,
-    Multiply,
-    Divide,
-    Pow,
-    Mod,
-    Concat,
-    Less,
-    LessEqual,
-    Greater,
-    GreaterEqual,
-    Equal,
-    NotEqual,
-    And,
-    Or,
-    // unary
-    Not,
-    Length,
-    Negate,
+    // Placeholder
+    Print
 }

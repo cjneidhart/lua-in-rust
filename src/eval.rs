@@ -1,26 +1,11 @@
+use std::collections::HashMap;
 use std::ops::{Div, Mul, Rem, Sub};
 
-use simple_types::Instr;
+use instr::Instr;
+use lua_val::LuaVal;
+use lua_val::LuaVal::*;
 
-#[derive(Clone, Debug, PartialEq)]
-pub enum LuaVal {
-    Nil,
-    Bool(bool),
-    Number(f64),
-    LuaString(String),
-    //Table(LuaTable),
-    // Function(LuaFunc),
-}
-use self::LuaVal::*;
-
-impl LuaVal {
-    pub fn truthy(&self) -> bool {
-        match self {
-            Nil | Bool(false) => false,
-            _ => true,
-        }
-    }
-}
+pub type GlobalEnv = HashMap<String, LuaVal>;
 
 #[derive(Debug)]
 pub enum EvalError {
@@ -30,11 +15,35 @@ pub enum EvalError {
     Other,
 }
 
-pub fn eval_expr(input: Vec<Instr>) -> Result<LuaVal, EvalError> {
-    let mut stack = Vec::new();
+pub fn eval_stmt(input: Vec<Instr>, env: &mut GlobalEnv) -> Result<(), EvalError> {
+    let mut stack = Vec::<LuaVal>::new();
     for instr in input.into_iter() {
         use self::Instr::*;
         match instr {
+            Print => {
+                let e = stack.pop().unwrap();
+                println!("{}", e);
+            },
+            Assign => {
+                let val = stack.pop().unwrap();
+                let name = stack.pop().unwrap();
+                if let LuaVal::LuaString(s) = name {
+                    env.insert(s, val);
+                } else {
+                    return Err(EvalError::DoubleTypeError(Instr::Assign, name, val));
+                }
+            },
+
+            GlobalLookup => {
+                let name = stack.pop().unwrap();
+                if let LuaVal::LuaString(s) = name {
+                    let val = env.get(&s).unwrap_or(&LuaVal::Nil);
+                    stack.push(val.clone());
+                } else {
+                    return Err(EvalError::SingleTypeError(instr, name));
+                }
+            }
+
             // Literals
             PushNil => stack.push(Nil),
             PushBool(b) => stack.push(Bool(b)),
@@ -93,7 +102,7 @@ pub fn eval_expr(input: Vec<Instr>) -> Result<LuaVal, EvalError> {
         }
     }
 
-    safe_pop(&mut stack)
+    Ok(())
 }
 
 /// Evaluate a function of 2 floats which returns a bool.
@@ -139,38 +148,24 @@ fn safe_pop(stack: &mut Vec<LuaVal>) -> Result<LuaVal, EvalError> {
 
 #[cfg(test)]
 mod tests {
-    use simple_types::Instr::*;
+    use instr::Instr::*;
     use super::*;
 
     #[test]
     fn test1() {
-        let input = vec![
-            PushNum(2.0),
-            PushNum(1.0),
-            Add
-        ];
-        assert_eq!(eval_expr(input).unwrap(), LuaVal::Number(3.0));
-    }
-
-    #[test]
-    fn test2() {
-        let input = vec![PushNum(2.0), PushNum(1.0), Subtract];
-        assert_eq!(eval_expr(input).unwrap(), LuaVal::Number(1.0));
-    }
-
-    #[test]
-    fn test3() {
-        let input = vec![PushNum(3.5), PushNum(2.0), Multiply];
-        check_it(input, LuaVal::Number(7.0));
+        let mut env = HashMap::new();
+        let input = vec![PushString("a".to_string()), PushNum(1.0), Assign];
+        eval_stmt(input, &mut env).unwrap();
+        assert_eq!(1, env.len());
+        assert_eq!(LuaVal::Number(1.0), *env.get("a").unwrap());
     }
 
     #[test]
     fn test4() {
-        let input = vec![PushNum(2.0), PushNum(2.0), Equal];
-        check_it(input, LuaVal::Bool(true));
-    }
-
-    fn check_it(input: Vec<Instr>, output: LuaVal) {
-        assert_eq!(eval_expr(input).unwrap(), output);
+        let mut env = HashMap::new();
+        let input = vec![PushString("a".to_string()), PushNum(2.5), PushNum(2.5), Equal, Assign];
+        eval_stmt(input, &mut env).unwrap();
+        assert_eq!(1, env.len());
+        assert_eq!(LuaVal::Bool(true), *env.get("a").unwrap());
     }
 }
