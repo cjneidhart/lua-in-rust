@@ -25,13 +25,13 @@ fn main() {
                 continue;
             }
         };
-        let instrs = match parser::parse_stmt(toks) {
+        let chunk = match parser::parse_chunk(toks) {
             Ok(v) => v,
             Err(e) => {
                 eprintln!("parse error: {:?}", e);
                 continue;
             }
         };
-        eval::eval_stmt(instrs, &mut env).unwrap();
+        eval::eval_chunk(chunk, &mut env).unwrap();
     }
 }

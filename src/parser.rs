@@ -3,25 +3,66 @@ use std::result;
 use token::Token;
 use instr::Instr;
 
+#[derive(Debug, Default, PartialEq)]
+pub struct Chunk {
+    pub code: Vec<Instr>,
+    pub number_literals: Vec<f64>,
+    pub string_literals: Vec<String>,
+}
+
 #[derive(Debug)]
 pub enum ParseError {
     Unsupported,
     Expect,
     ExprEof,
+    TooManyNumbers,
+    TooManyStrings,
     Other,
 }
 
 type Result<T> = result::Result<T, ParseError>;
 
 /// Tracks the current state, to make parsing easier.
+#[derive(Debug)]
 struct Parser {
     input: Vec<Token>,
     output: Vec<Instr>,
     lookahead: Option<Token>,
+    string_literals: Vec<String>,
+    number_literals: Vec<f64>,
 }
 
 impl Parser {
-    fn parse_stmt(mut self) -> Result<Vec<Instr>> {
+    fn new(tokens: Vec<Token>) -> Self {
+        let mut input = tokens.into_iter().rev().collect::<Vec<_>>();
+        let lookahead = input.pop();
+        Parser {
+            input,
+            lookahead,
+            output: Vec::new(),
+            string_literals: Vec::new(),
+            number_literals: Vec::new(),
+        }
+    }
+
+    fn parse_chunk(mut self) -> Result<Chunk> {
+        loop {
+            match self.lookahead {
+                None | Some(Token::Eof) | Some(Token::End) => break,
+                _ => self.parse_stmt()?,
+            };
+        }
+
+        let c = Chunk {
+            code: self.output,
+            number_literals: self.number_literals,
+            string_literals: self.string_literals,
+        };
+
+        Ok(c)
+    }
+
+    fn parse_stmt(&mut self) -> Result<()> {
         match self.lookahead {
             Some(Token::Identifier(_)) => self.parse_assign()?,
             Some(Token::Print) => self.parse_print()?,
@@ -34,7 +75,7 @@ impl Parser {
             self.next();
         }
 
-        Ok(self.output)
+        Ok(())
     }
 
     fn parse_assign(&mut self) -> Result<()> {
@@ -42,7 +83,8 @@ impl Parser {
             Some(Token::Identifier(name)) => name,
             _ => return Err(ParseError::Other),
         };
-        self.push(Instr::PushString(name));
+        let i = find_or_add(&mut self.string_literals, name);
+        self.push(Instr::PushString(i));
         self.expect(Token::Assign)?;
         self.parse_expr()?;
         self.push(Instr::Assign);
@@ -238,14 +280,22 @@ impl Parser {
                 self.expect(Token::RParen)?;
             }
             Some(Token::Identifier(name)) => {
-                self.push(Instr::PushString(name));
+                let i = find_or_add(&mut self.string_literals, name);
+                self.push(Instr::PushString(i));
                 self.push(Instr::GlobalLookup);
             }
-            Some(Token::LiteralNumber(n)) => self.push(Instr::PushNum(n)),
+            Some(Token::LiteralNumber(n)) => {
+                let i = find_or_add(&mut self.number_literals, n);
+                self.push(Instr::PushNum(i));
+            }
+            Some(Token::LiteralString(s)) => {
+                let i = find_or_add(&mut self.string_literals, s);
+                self.push(Instr::PushString(i));
+            }
             Some(Token::Nil) => self.push(Instr::PushNil),
             Some(Token::False) => self.push(Instr::PushBool(false)),
             Some(Token::True) => self.push(Instr::PushBool(true)),
-            Some(Token::LiteralString(s)) => self.push(Instr::PushString(s)),
+
             Some(Token::DotDotDot) | Some(Token::Function) => {
                 return Err(ParseError::Unsupported);
             }
@@ -278,17 +328,22 @@ impl Parser {
     }
 }
 
-pub fn parse_stmt(tokens: Vec<Token>) -> result::Result<Vec<Instr>, ParseError> {
-    let output: Vec<Instr> = Vec::new();
-    let mut input: Vec<Token> = tokens.iter().rev().cloned().collect();
-    let lookahead = input.pop();
-    let p = Parser {
-        input,
-        output,
-        lookahead,
-    };
+pub fn parse_chunk(tokens: Vec<Token>) -> result::Result<Chunk, ParseError> {
+    let p = Parser::new(tokens);
 
-    p.parse_stmt()
+    p.parse_chunk()
+}
+
+/// Returns the index of a number in the literals list, adding it if it does not exist.
+fn find_or_add<T>(queue: &mut Vec<T>, x: T) -> usize where T: PartialEq<T> {
+    match queue.iter().position(|y| *y == x) {
+        Some(i) => i,
+        None => {
+            let i = queue.len();
+            queue.push(x);
+            i
+        }
+    }
 }
 
 #[cfg(test)]
@@ -300,53 +355,81 @@ mod tests {
     #[test]
     fn test1() {
         let input = vec![Token::Print, LiteralNumber(5.0), Plus, LiteralNumber(6.0), Eof];
-        let out = vec![PushNum(5.0), PushNum(6.0), Add, Instr::Print];
-        assert_eq!(parse_stmt(input).unwrap(), out);
+        let out = Chunk {
+            code: vec![PushNum(0), PushNum(1), Add, Instr::Print],
+            number_literals: vec![5.0, 6.0],
+            string_literals: vec![],
+        };
+        check_it(input, out);
     }
 
     #[test]
     fn test2() {
         let input = vec![Token::Print, Minus, LiteralNumber(5.0), Caret, LiteralNumber(2.0), Eof];
-        let out = vec![PushNum(5.0), PushNum(2.0), Pow, Negate, Instr::Print];
-        assert_eq!(parse_stmt(input).unwrap(), out);
+        let out = Chunk {
+            code: vec![PushNum(0), PushNum(1), Pow, Negate, Instr::Print],
+            number_literals: vec![5.0, 2.0],
+            string_literals: vec![],
+        };
+        check_it(input, out);
     }
 
     #[test]
     fn test3() {
         let input = vec![Token::Print, LiteralNumber(5.0), Plus, True, DotDot, LiteralString("hi".to_string()), Eof];
-        let out = vec![PushNum(5.0), PushBool(true), Add, PushString("hi".to_string()), Concat, Instr::Print];
-        assert_eq!(parse_stmt(input).unwrap(), out);
+        let out = Chunk {
+            code: vec![PushNum(0), PushBool(true), Add, PushString(0), Concat, Instr::Print],
+            number_literals: vec![5.0],
+            string_literals: vec!["hi".to_string()],
+        };
+        check_it(input, out);
     }
 
     #[test]
     fn test4() {
         let input = vec![Token::Print, LiteralNumber(1.0), DotDot, LiteralNumber(2.0), Plus, LiteralNumber(3.0), Eof];
-        let output = vec![PushNum(1.0), PushNum(2.0), PushNum(3.0), Add, Concat, Instr::Print];
-        assert_eq!(parse_stmt(input).unwrap(), output);
+        let output = Chunk {
+            code: vec![PushNum(0), PushNum(1), PushNum(2), Add, Concat, Instr::Print],
+            number_literals: vec![1.0, 2.0, 3.0],
+            string_literals: vec![],
+        };
+        check_it(input, output);
     }
 
     #[test]
     fn test5() {
         let input = vec![Token::Print, LiteralNumber(2.0), Caret, Minus, LiteralNumber(3.0), Eof];
-        let output = vec![PushNum(2.0), PushNum(3.0), Negate, Pow, Instr::Print];
-        assert_eq!(parse_stmt(input).unwrap(), output);
+        let output = Chunk {
+            code: vec![PushNum(0), PushNum(1), Negate, Pow, Instr::Print],
+            number_literals: vec![2.0, 3.0],
+            string_literals: vec![],
+        };
+        check_it(input, output);
     }
 
     #[test]
     fn test6() {
         let input = vec![Token::Print, Token::Not, Token::Not, LiteralNumber(1.0), Eof];
-        let output = vec![PushNum(1.0), Instr::Not, Instr::Not, Instr::Print];
+        let output = Chunk {
+            code: vec![PushNum(0), Instr::Not, Instr::Not, Instr::Print],
+            number_literals: vec![1.0],
+            string_literals: vec![],
+        };
         check_it(input, output);
     }
 
     #[test]
     fn test7() {
         let input = vec![Token::Identifier("a".to_string()), Token::Assign, LiteralNumber(5.0), Eof];
-        let output = vec![PushString("a".to_string()), PushNum(5.0), Instr::Assign];
+        let output = Chunk {
+            code: vec![PushString(0), PushNum(0), Instr::Assign],
+            number_literals: vec![5.0],
+            string_literals: vec!["a".to_string()],
+        };
         check_it(input, output);
     }
 
-    fn check_it(input: Vec<Token>, output: Vec<Instr>) {
-        assert_eq!(parse_stmt(input).unwrap(), output);
+    fn check_it(input: Vec<Token>, output: Chunk) {
+        assert_eq!(parse_chunk(input).unwrap(), output);
     }
 }

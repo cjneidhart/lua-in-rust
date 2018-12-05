@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::ops::{Div, Mul, Rem, Sub};
 
+use parser::Chunk;
 use instr::Instr;
 use lua_val::LuaVal;
 use lua_val::LuaVal::*;
@@ -15,9 +16,9 @@ pub enum EvalError {
     Other,
 }
 
-pub fn eval_stmt(input: Vec<Instr>, env: &mut GlobalEnv) -> Result<(), EvalError> {
+pub fn eval_chunk(input: Chunk, env: &mut GlobalEnv) -> Result<(), EvalError> {
     let mut stack = Vec::<LuaVal>::new();
-    for instr in input.into_iter() {
+    for instr in input.code.into_iter() {
         use self::Instr::*;
         match instr {
             Print => {
@@ -47,8 +48,8 @@ pub fn eval_stmt(input: Vec<Instr>, env: &mut GlobalEnv) -> Result<(), EvalError
             // Literals
             PushNil => stack.push(Nil),
             PushBool(b) => stack.push(Bool(b)),
-            PushNum(n) => stack.push(Number(n)),
-            PushString(s) => stack.push(LuaString(s)),
+            PushNum(i) => stack.push(Number(input.number_literals[i])),
+            PushString(i) => stack.push(LuaString(input.string_literals[i].clone())),
 
             // Arithmetic
             Add => eval_float_float(<f64 as std::ops::Add>::add, instr, &mut stack)?,
@@ -154,8 +155,12 @@ mod tests {
     #[test]
     fn test1() {
         let mut env = HashMap::new();
-        let input = vec![PushString("a".to_string()), PushNum(1.0), Assign];
-        eval_stmt(input, &mut env).unwrap();
+        let input = Chunk {
+            code: vec![PushString(0), PushNum(0), Assign],
+            number_literals: vec![1.0],
+            string_literals: vec!["a".to_string()],
+        };
+        eval_chunk(input, &mut env).unwrap();
         assert_eq!(1, env.len());
         assert_eq!(LuaVal::Number(1.0), *env.get("a").unwrap());
     }
@@ -163,8 +168,12 @@ mod tests {
     #[test]
     fn test4() {
         let mut env = HashMap::new();
-        let input = vec![PushString("a".to_string()), PushNum(2.5), PushNum(2.5), Equal, Assign];
-        eval_stmt(input, &mut env).unwrap();
+        let input = Chunk {
+            code: vec![PushString(0), PushNum(0), PushNum(0), Equal, Assign],
+            number_literals: vec![2.5],
+            string_literals: vec!["a".to_string()],
+        };
+        eval_chunk(input, &mut env).unwrap();
         assert_eq!(1, env.len());
         assert_eq!(LuaVal::Bool(true), *env.get("a").unwrap());
     }

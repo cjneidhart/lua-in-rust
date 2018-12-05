@@ -6,8 +6,8 @@ pub enum Instr {
     // values
     PushNil,
     PushBool(bool),
-    PushNum(f64),
-    PushString(String),
+    PushNum(usize),
+    PushString(usize),
     PushTable,
     // In: table, key, value
     // Out: table
