@@ -85,6 +85,9 @@ pub fn eval_chunk(input: Chunk, env: &mut GlobalEnv) -> Result<(), EvalError> {
             LessEqual => eval_float_bool(<f64 as PartialOrd<f64>>::le, instr, &mut stack)?,
             GreaterEqual => eval_float_bool(<f64 as PartialOrd<f64>>::ge, instr, &mut stack)?,
 
+            // String concatenation
+            Concat => attempt_concat(&mut stack)?,
+
             // Unary
             Negate => {
                 let e = safe_pop(&mut stack)?;
@@ -104,6 +107,17 @@ pub fn eval_chunk(input: Chunk, env: &mut GlobalEnv) -> Result<(), EvalError> {
     }
 
     Ok(())
+}
+
+fn attempt_concat(stack: &mut Vec<LuaVal>) -> Result<(), EvalError> {
+    let v2 = safe_pop(stack)?;
+    let v1 = safe_pop(stack)?;
+    if let (LuaString(s1), LuaString(s2)) = (&v1, &v2) {
+        stack.push(LuaString(s1.clone() + s2));
+        return Ok(());
+    }
+
+    Err(EvalError::DoubleTypeError(Instr::Concat, v1, v2))
 }
 
 /// Evaluate a function of 2 floats which returns a bool.
@@ -143,6 +157,7 @@ where
     Err(EvalError::DoubleTypeError(instr, v1, v2))
 }
 
+/// Pop from the top of the stack, or return a EvalError.
 fn safe_pop(stack: &mut Vec<LuaVal>) -> Result<LuaVal, EvalError> {
     stack.pop().ok_or(EvalError::StackError)
 }
@@ -163,6 +178,20 @@ mod tests {
         eval_chunk(input, &mut env).unwrap();
         assert_eq!(1, env.len());
         assert_eq!(LuaVal::Number(1.0), *env.get("a").unwrap());
+    }
+
+    #[test]
+    fn test2() {
+        let mut env = HashMap::new();
+        let input = Chunk {
+            code: vec![PushString(0), PushString(1), PushString(2), Concat, Assign],
+            number_literals: vec![],
+            //string_literals: vec![],
+            string_literals: vec!["key".to_string(), "a".to_string(), "b".to_string()],
+        };
+        eval_chunk(input, &mut env).unwrap();
+        assert_eq!(1, env.len());
+        assert_eq!(LuaVal::LuaString("ab".to_string()), *env.get("key").unwrap());
     }
 
     #[test]

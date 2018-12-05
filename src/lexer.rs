@@ -14,7 +14,7 @@ pub enum LexerError {
     Other,
 }
 
-pub type Result<T> = ::std::result::Result<T, LexerError>;
+pub type Result<T> = std::result::Result<T, LexerError>;
 
 pub fn lex(input: &str) -> Result<Vec<Token>> {
     let mut output = Vec::<Token>::new();
