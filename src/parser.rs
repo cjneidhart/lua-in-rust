@@ -1,7 +1,7 @@
 use std::result;
 
-use token::Token;
-use instr::Instr;
+use crate::token::Token;
+use crate::instr::Instr;
 
 #[derive(Debug, Default, PartialEq)]
 pub struct Chunk {

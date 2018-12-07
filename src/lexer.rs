@@ -2,8 +2,7 @@
 
 use std::iter::Peekable;
 use std::str::Chars;
-use token::Token;
-use token::Token::*;
+use crate::token::{Token, Token::*};
 
 
 #[derive(Debug)]

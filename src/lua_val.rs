@@ -21,7 +21,7 @@ impl LuaVal {
 
 impl Display for LuaVal {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        use lua_val::LuaVal::*;
+        use self::LuaVal::*;
         match self {
             Nil => write!(f, "nil"),
             Bool(b) => Display::fmt(b, f),

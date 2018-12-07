@@ -1,10 +1,9 @@
 use std::collections::HashMap;
 use std::ops::{Div, Mul, Rem, Sub};
 
-use parser::Chunk;
-use instr::Instr;
-use lua_val::LuaVal;
-use lua_val::LuaVal::*;
+use crate::parser::Chunk;
+use crate::instr::Instr;
+use crate::lua_val::{LuaVal, LuaVal::*};
 
 pub type GlobalEnv = HashMap<String, LuaVal>;
 
@@ -102,7 +101,7 @@ pub fn eval_chunk(input: Chunk, env: &mut GlobalEnv) -> Result<(), EvalError> {
                 stack.push(Bool(!e.truthy()));
             }
 
-            _ => panic!(),
+            _ => panic!("We don't support that instruction yet."),
         }
     }
 
@@ -164,7 +163,7 @@ fn safe_pop(stack: &mut Vec<LuaVal>) -> Result<LuaVal, EvalError> {
 
 #[cfg(test)]
 mod tests {
-    use instr::Instr::*;
+    use crate::instr::Instr::*;
     use super::*;
 
     #[test]
