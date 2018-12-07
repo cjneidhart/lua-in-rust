@@ -100,23 +100,33 @@ impl Parser {
 
     /// Parse the input as a single expression.
     fn parse_expr(&mut self) -> Result<()> {
-        self.parse_logic()
+        self.parse_or()
     }
 
-    /// Attempt to parse a logical expression. Precedence 7.
-    ///
-    /// `and`, `or`
-    fn parse_logic(&mut self) -> Result<()> {
+    /// Attempt to parse an 'or' expression. Precedence 8.
+    fn parse_or(&mut self) -> Result<()> {
+        self.parse_and()?;
+        loop {
+            if let Some(Token::And) = self.lookahead {
+                self.next();
+                self.parse_and()?;
+                self.push(Instr::And);
+            } else {
+                break;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Attempt to parse an 'and' expression. Precedence 7.
+    fn parse_and(&mut self) -> Result<()> {
         self.parse_comparison()?;
         loop {
             if let Some(Token::And) = self.lookahead {
                 self.next();
                 self.parse_comparison()?;
                 self.push(Instr::And);
-            } else if let Some(Token::Or) = self.lookahead {
-                self.next();
-                self.parse_comparison()?;
-                self.push(Instr::Or);
             } else {
                 break;
             }
