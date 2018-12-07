@@ -1,7 +1,7 @@
 use std::result;
 
-use crate::token::Token;
 use crate::instr::Instr;
+use crate::token::Token;
 
 #[derive(Debug, Default, PartialEq)]
 pub struct Chunk {
@@ -68,7 +68,7 @@ impl Parser {
             Some(Token::Print) => self.parse_print()?,
             _ => {
                 return Err(ParseError::Unsupported);
-            },
+            }
         };
 
         if let Some(Token::Semi) = self.lookahead {
@@ -345,7 +345,10 @@ pub fn parse_chunk(tokens: Vec<Token>) -> result::Result<Chunk, ParseError> {
 }
 
 /// Returns the index of a number in the literals list, adding it if it does not exist.
-fn find_or_add<T>(queue: &mut Vec<T>, x: T) -> usize where T: PartialEq<T> {
+fn find_or_add<T>(queue: &mut Vec<T>, x: T) -> usize
+where
+    T: PartialEq<T>,
+{
     match queue.iter().position(|y| *y == x) {
         Some(i) => i,
         None => {
@@ -358,13 +361,19 @@ fn find_or_add<T>(queue: &mut Vec<T>, x: T) -> usize where T: PartialEq<T> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use self::Token::*;
     use self::Instr::*;
+    use self::Token::*;
+    use super::*;
 
     #[test]
     fn test1() {
-        let input = vec![Token::Print, LiteralNumber(5.0), Plus, LiteralNumber(6.0), Eof];
+        let input = vec![
+            Token::Print,
+            LiteralNumber(5.0),
+            Plus,
+            LiteralNumber(6.0),
+            Eof,
+        ];
         let out = Chunk {
             code: vec![PushNum(0), PushNum(1), Add, Instr::Print],
             number_literals: vec![5.0, 6.0],
@@ -375,7 +384,14 @@ mod tests {
 
     #[test]
     fn test2() {
-        let input = vec![Token::Print, Minus, LiteralNumber(5.0), Caret, LiteralNumber(2.0), Eof];
+        let input = vec![
+            Token::Print,
+            Minus,
+            LiteralNumber(5.0),
+            Caret,
+            LiteralNumber(2.0),
+            Eof,
+        ];
         let out = Chunk {
             code: vec![PushNum(0), PushNum(1), Pow, Negate, Instr::Print],
             number_literals: vec![5.0, 2.0],
@@ -386,9 +402,24 @@ mod tests {
 
     #[test]
     fn test3() {
-        let input = vec![Token::Print, LiteralNumber(5.0), Plus, True, DotDot, LiteralString("hi".to_string()), Eof];
+        let input = vec![
+            Token::Print,
+            LiteralNumber(5.0),
+            Plus,
+            True,
+            DotDot,
+            LiteralString("hi".to_string()),
+            Eof,
+        ];
         let out = Chunk {
-            code: vec![PushNum(0), PushBool(true), Add, PushString(0), Concat, Instr::Print],
+            code: vec![
+                PushNum(0),
+                PushBool(true),
+                Add,
+                PushString(0),
+                Concat,
+                Instr::Print,
+            ],
             number_literals: vec![5.0],
             string_literals: vec!["hi".to_string()],
         };
@@ -397,9 +428,24 @@ mod tests {
 
     #[test]
     fn test4() {
-        let input = vec![Token::Print, LiteralNumber(1.0), DotDot, LiteralNumber(2.0), Plus, LiteralNumber(3.0), Eof];
+        let input = vec![
+            Token::Print,
+            LiteralNumber(1.0),
+            DotDot,
+            LiteralNumber(2.0),
+            Plus,
+            LiteralNumber(3.0),
+            Eof,
+        ];
         let output = Chunk {
-            code: vec![PushNum(0), PushNum(1), PushNum(2), Add, Concat, Instr::Print],
+            code: vec![
+                PushNum(0),
+                PushNum(1),
+                PushNum(2),
+                Add,
+                Concat,
+                Instr::Print,
+            ],
             number_literals: vec![1.0, 2.0, 3.0],
             string_literals: vec![],
         };
@@ -408,7 +454,14 @@ mod tests {
 
     #[test]
     fn test5() {
-        let input = vec![Token::Print, LiteralNumber(2.0), Caret, Minus, LiteralNumber(3.0), Eof];
+        let input = vec![
+            Token::Print,
+            LiteralNumber(2.0),
+            Caret,
+            Minus,
+            LiteralNumber(3.0),
+            Eof,
+        ];
         let output = Chunk {
             code: vec![PushNum(0), PushNum(1), Negate, Pow, Instr::Print],
             number_literals: vec![2.0, 3.0],
@@ -419,7 +472,13 @@ mod tests {
 
     #[test]
     fn test6() {
-        let input = vec![Token::Print, Token::Not, Token::Not, LiteralNumber(1.0), Eof];
+        let input = vec![
+            Token::Print,
+            Token::Not,
+            Token::Not,
+            LiteralNumber(1.0),
+            Eof,
+        ];
         let output = Chunk {
             code: vec![PushNum(0), Instr::Not, Instr::Not, Instr::Print],
             number_literals: vec![1.0],
@@ -430,7 +489,12 @@ mod tests {
 
     #[test]
     fn test7() {
-        let input = vec![Token::Identifier("a".to_string()), Token::Assign, LiteralNumber(5.0), Eof];
+        let input = vec![
+            Token::Identifier("a".to_string()),
+            Token::Assign,
+            LiteralNumber(5.0),
+            Eof,
+        ];
         let output = Chunk {
             code: vec![PushString(0), PushNum(0), Instr::Assign],
             number_literals: vec![5.0],

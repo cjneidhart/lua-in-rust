@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 use std::ops::{Div, Mul, Rem, Sub};
 
-use crate::parser::Chunk;
 use crate::instr::Instr;
 use crate::lua_val::{LuaVal, LuaVal::*};
+use crate::parser::Chunk;
 
 pub type GlobalEnv = HashMap<String, LuaVal>;
 
@@ -23,7 +23,7 @@ pub fn eval_chunk(input: Chunk, env: &mut GlobalEnv) -> Result<(), EvalError> {
             Print => {
                 let e = stack.pop().unwrap();
                 println!("{}", e);
-            },
+            }
             Assign => {
                 let val = stack.pop().unwrap();
                 let name = stack.pop().unwrap();
@@ -32,7 +32,7 @@ pub fn eval_chunk(input: Chunk, env: &mut GlobalEnv) -> Result<(), EvalError> {
                 } else {
                     return Err(EvalError::DoubleTypeError(Instr::Assign, name, val));
                 }
-            },
+            }
 
             GlobalLookup => {
                 let name = stack.pop().unwrap();
@@ -163,8 +163,8 @@ fn safe_pop(stack: &mut Vec<LuaVal>) -> Result<LuaVal, EvalError> {
 
 #[cfg(test)]
 mod tests {
-    use crate::instr::Instr::*;
     use super::*;
+    use crate::instr::Instr::*;
 
     #[test]
     fn test1() {
@@ -190,7 +190,10 @@ mod tests {
         };
         eval_chunk(input, &mut env).unwrap();
         assert_eq!(1, env.len());
-        assert_eq!(LuaVal::LuaString("ab".to_string()), *env.get("key").unwrap());
+        assert_eq!(
+            LuaVal::LuaString("ab".to_string()),
+            *env.get("key").unwrap()
+        );
     }
 
     #[test]

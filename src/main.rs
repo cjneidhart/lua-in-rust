@@ -2,9 +2,9 @@ use std::collections::HashMap;
 use std::io;
 use std::io::Write;
 
+use lua::eval;
 use lua::lexer;
 use lua::parser;
-use lua::eval;
 
 fn main() {
     let stdin = io::stdin();

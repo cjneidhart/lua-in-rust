@@ -1,9 +1,8 @@
 //! This module contains functions which can tokenize a string input.
 
+use crate::token::{Token, Token::*};
 use std::iter::Peekable;
 use std::str::Chars;
-use crate::token::{Token, Token::*};
-
 
 #[derive(Debug)]
 pub enum LexerError {
@@ -56,12 +55,14 @@ fn tokenize(input: &mut Peekable<Chars>) -> Result<Token> {
             '=' | '<' | '>' | '~' => peek_equals(c, input),
             '\'' => lex_string(input, true),
             '\"' => lex_string(input, false),
-            _ => if c.is_digit(10) {
-                lex_number(c, input)
-            } else if c.is_alphabetic() || c == '_' {
-                lex_ident(c, input)
-            } else {
-                Err(LexerError::InvalidCharacter)
+            _ => {
+                if c.is_digit(10) {
+                    lex_number(c, input)
+                } else if c.is_alphabetic() || c == '_' {
+                    lex_ident(c, input)
+                } else {
+                    Err(LexerError::InvalidCharacter)
+                }
             }
         }
     } else {
@@ -159,7 +160,7 @@ fn lex_string(input: &mut Peekable<Chars>, is_single_quotes: bool) -> Result<Tok
                         _ => return Err(LexerError::BadEscape),
                     }
                 } else {
-                    return Err(LexerError::UnclosedString)
+                    return Err(LexerError::UnclosedString);
                 }
             } else {
                 output.push(c);
@@ -228,7 +229,10 @@ mod tests {
 
     #[test]
     fn test2() {
-        assert_eq!(vec![Identifier("hi".to_string()), LiteralNumber(4.0), False, Eof], lex_force("hi 4false"));
+        assert_eq!(
+            vec![Identifier("hi".to_string()), LiteralNumber(4.0), False, Eof],
+            lex_force("hi 4false")
+        );
     }
 
     #[test]

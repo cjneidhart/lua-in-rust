@@ -1,7 +1,6 @@
-pub mod lexer;
-pub mod parser;
 pub mod eval;
 mod instr;
-mod token;
+pub mod lexer;
 mod lua_val;
-
+pub mod parser;
+mod token;

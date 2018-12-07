@@ -1,3 +1,4 @@
+#[rustfmt::skip]
 #[derive(Clone, Debug, PartialEq)]
 pub enum Token {
     // Keywords
