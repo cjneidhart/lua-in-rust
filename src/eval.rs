@@ -26,18 +26,33 @@ pub fn eval_chunk(input: Chunk, env: &mut GlobalEnv) -> Result<(), EvalError> {
             Pop => {
                 safe_pop(&mut stack)?;
             }
+            Jump(offset) => {
+                ip += offset as usize;
+            }
 
             BranchFalse(offset) => {
                 let val = safe_pop(&mut stack)?;
                 if !val.truthy() {
-                    ip += offset;
+                    ip += offset as usize;
                 }
-                stack.push(val);
             }
             BranchTrue(offset) => {
                 let val = safe_pop(&mut stack)?;
                 if val.truthy() {
-                    ip += offset;
+                    ip += offset as usize;
+                }
+            }
+            BranchFalseKeep(offset) => {
+                let val = safe_pop(&mut stack)?;
+                if !val.truthy() {
+                    ip += offset as usize;
+                }
+                stack.push(val);
+            }
+            BranchTrueKeep(offset) => {
+                let val = safe_pop(&mut stack)?;
+                if val.truthy() {
+                    ip += offset as usize;
                 }
                 stack.push(val);
             }
@@ -240,7 +255,7 @@ mod tests {
             code: vec![
                 PushString(0),
                 PushBool(true),
-                BranchFalse(2),
+                BranchFalseKeep(2),
                 Pop,
                 PushBool(false),
                 Instr::Assign,
@@ -251,5 +266,46 @@ mod tests {
         eval_chunk(input, &mut env).unwrap();
         assert_eq!(1, env.len());
         assert_eq!(Bool(false), *env.get("key").unwrap());
+    }
+
+    #[test]
+    fn test6() {
+        let mut env = HashMap::new();
+        let code = vec![
+            PushBool(true),
+            BranchFalse(3),
+            PushString(0),
+            PushNum(0),
+            Instr::Assign,
+        ];
+        let chunk = Chunk {
+            code,
+            number_literals: vec![5.0],
+            string_literals: vec!["a".to_string()],
+        };
+        eval_chunk(chunk, &mut env).unwrap();
+        assert_eq!(1, env.len());
+        assert_eq!(Number(5.0), *env.get("a").unwrap());
+    }
+
+    #[test]
+    fn test7() {
+        let mut env = HashMap::new();
+        let code = vec![
+            PushNum(0),
+            PushNum(0),
+            Less,
+            BranchFalse(3),
+            PushString(0),
+            PushBool(true),
+            Instr::Assign,
+        ];
+        let chunk = Chunk {
+            code,
+            number_literals: vec![2.0],
+            string_literals: vec!["a".to_string()],
+        };
+        eval_chunk(chunk, &mut env).unwrap();
+        assert_eq!(0, env.len());
     }
 }

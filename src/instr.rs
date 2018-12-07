@@ -1,7 +1,10 @@
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Instr {
-    BranchTrue(usize),
-    BranchFalse(usize),
+    Jump(isize),
+    BranchTrue(isize),
+    BranchFalse(isize),
+    BranchTrueKeep(isize),
+    BranchFalseKeep(isize),
     Pop,
 
     Print,

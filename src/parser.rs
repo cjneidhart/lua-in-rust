@@ -15,7 +15,7 @@ pub struct Chunk {
 pub enum ParseError {
     StatementStart(Token),
     Unsupported,
-    Expect,
+    Expect(Token),
     ExprEof,
     TooManyNumbers,
     TooManyStrings,
@@ -48,12 +48,7 @@ impl Parser {
     }
 
     fn parse_chunk(mut self) -> Result<Chunk> {
-        loop {
-            match self.lookahead {
-                None | Some(Token::Eof) | Some(Token::End) => break,
-                _ => self.parse_stmt()?,
-            };
-        }
+        self.parse_statements()?;
 
         let c = Chunk {
             code: self.output,
@@ -64,9 +59,21 @@ impl Parser {
         Ok(c)
     }
 
+    fn parse_statements(&mut self) -> Result<()> {
+        loop {
+            match self.lookahead {
+                None | Some(Token::Eof) | Some(Token::End) => break,
+                _ => self.parse_stmt()?,
+            };
+        }
+
+        Ok(())
+    }
+
     fn parse_stmt(&mut self) -> Result<()> {
         match self.lookahead {
             Some(Token::Identifier(_)) => self.parse_assign()?,
+            Some(Token::If) => self.parse_if()?,
             Some(Token::Print) => self.parse_print()?,
             Some(ref t) => {
                 return Err(ParseError::StatementStart(t.clone()));
@@ -79,6 +86,26 @@ impl Parser {
         if let Some(Token::Semi) = self.lookahead {
             self.next();
         }
+
+        Ok(())
+    }
+
+    fn parse_if(&mut self) -> Result<()> {
+        self.next();
+        self.parse_expr()?;
+
+        self.expect(Token::Then)?;
+        let mut old_output = Vec::new();
+        swap(&mut self.output, &mut old_output);
+        self.parse_statements()?;
+
+        // TODO else, elseif
+        self.expect(Token::End)?;
+
+        let body_len = self.output.len() as isize;
+        old_output.push(Instr::BranchFalse(body_len));
+        old_output.append(&mut self.output);
+        self.output = old_output;
 
         Ok(())
     }
@@ -119,7 +146,7 @@ impl Parser {
                 self.push(Instr::Pop);
                 self.parse_and()?;
                 let right_side_len = self.output.len();
-                old_output.push(Instr::BranchTrue(right_side_len));
+                old_output.push(Instr::BranchTrueKeep(right_side_len as isize));
                 old_output.append(&mut self.output);
                 self.output = old_output;
             } else {
@@ -142,7 +169,7 @@ impl Parser {
                 self.push(Instr::Pop);
                 self.parse_comparison()?;
                 let right_side_len = self.output.len();
-                old_output.push(Instr::BranchFalse(right_side_len));
+                old_output.push(Instr::BranchFalseKeep(right_side_len as isize));
                 old_output.append(&mut self.output);
                 self.output = old_output;
             } else {
@@ -351,7 +378,7 @@ impl Parser {
     fn expect(&mut self, tok: Token) -> Result<()> {
         match self.next() {
             Some(ref t) if *t == tok => Ok(()),
-            _ => Err(ParseError::Expect),
+            _ => Err(ParseError::Expect(tok)),
         }
     }
 }
@@ -382,6 +409,10 @@ mod tests {
     use self::Instr::*;
     use self::Token::*;
     use super::*;
+
+    fn check_it(input: Vec<Token>, output: Chunk) {
+        assert_eq!(parse_chunk(input).unwrap(), output);
+    }
 
     #[test]
     fn test1() {
@@ -527,7 +558,7 @@ mod tests {
         let output = Chunk {
             code: vec![
                 PushBool(true),
-                BranchFalse(2),
+                BranchFalseKeep(2),
                 Pop,
                 PushBool(false),
                 Instr::Print,
@@ -543,10 +574,10 @@ mod tests {
         let input = vec![Token::Print, LiteralNumber(5.0), Or, Nil, And, True];
         let code = vec![
             PushNum(0),
-            BranchTrue(5),
+            BranchTrueKeep(5),
             Pop,
             PushNil,
-            BranchFalse(2),
+            BranchFalseKeep(2),
             Pop,
             PushBool(true),
             Instr::Print,
@@ -559,7 +590,67 @@ mod tests {
         check_it(input, output);
     }
 
-    fn check_it(input: Vec<Token>, output: Chunk) {
-        assert_eq!(parse_chunk(input).unwrap(), output);
+    #[test]
+    fn test10() {
+        let input = vec![
+            If,
+            True,
+            Then,
+            Identifier("a".to_string()),
+            Token::Assign,
+            LiteralNumber(5.0),
+            End,
+        ];
+        let code = vec![
+            PushBool(true),
+            BranchFalse(3),
+            PushString(0),
+            PushNum(0),
+            Instr::Assign,
+        ];
+        let chunk = Chunk {
+            code,
+            number_literals: vec![5.0],
+            string_literals: vec!["a".to_string()],
+        };
+        check_it(input, chunk);
+    }
+
+    #[test]
+    fn test11() {
+        let input = vec![
+            If,
+            True,
+            Then,
+            Identifier("a".to_string()),
+            Token::Assign,
+            LiteralNumber(5.0),
+            If,
+            True,
+            Then,
+            Identifier("b".to_string()),
+            Token::Assign,
+            LiteralNumber(4.0),
+            End,
+            End,
+        ];
+        let code = vec![
+            PushBool(true),
+            BranchFalse(8),
+            PushString(0),
+            PushNum(0),
+            Instr::Assign,
+            PushBool(true),
+            BranchFalse(3),
+            PushString(1),
+            PushNum(1),
+            Instr::Assign,
+        ];
+        let chunk = Chunk {
+            code,
+            number_literals: vec![5.0, 4.0],
+            string_literals: vec!["a".to_string(), "b".to_string()],
+        };
+        check_it(input, chunk);
     }
 }
