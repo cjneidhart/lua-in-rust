@@ -1,17 +1,18 @@
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Instr {
+    BranchTrue(usize),
+    BranchFalse(usize),
+    Pop,
+
     Print,
     Assign,
     GlobalLookup,
-    // values
+
     PushNil,
     PushBool(bool),
     PushNum(usize),
     PushString(usize),
-    PushTable,
-    // In: table, key, value
-    // Out: table
-    TableAssign,
+
     // binary operators
     Add,
     Subtract,
@@ -26,8 +27,7 @@ pub enum Instr {
     GreaterEqual,
     Equal,
     NotEqual,
-    And,
-    Or,
+
     // unary
     Not,
     Length,

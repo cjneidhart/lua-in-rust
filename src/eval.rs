@@ -17,9 +17,31 @@ pub enum EvalError {
 
 pub fn eval_chunk(input: Chunk, env: &mut GlobalEnv) -> Result<(), EvalError> {
     let mut stack = Vec::<LuaVal>::new();
-    for instr in input.code.into_iter() {
+    let mut ip = 0;
+    let len = input.code.len();
+    while ip < len {
         use self::Instr::*;
+        let instr = input.code[ip];
         match instr {
+            Pop => {
+                safe_pop(&mut stack)?;
+            }
+
+            BranchFalse(offset) => {
+                let val = safe_pop(&mut stack)?;
+                if !val.truthy() {
+                    ip += offset;
+                }
+                stack.push(val);
+            }
+            BranchTrue(offset) => {
+                let val = safe_pop(&mut stack)?;
+                if val.truthy() {
+                    ip += offset;
+                }
+                stack.push(val);
+            }
+
             Print => {
                 let e = stack.pop().unwrap();
                 println!("{}", e);
@@ -103,6 +125,8 @@ pub fn eval_chunk(input: Chunk, env: &mut GlobalEnv) -> Result<(), EvalError> {
 
             _ => panic!("We don't support that instruction yet."),
         }
+
+        ip += 1;
     }
 
     Ok(())
@@ -207,5 +231,25 @@ mod tests {
         eval_chunk(input, &mut env).unwrap();
         assert_eq!(1, env.len());
         assert_eq!(LuaVal::Bool(true), *env.get("a").unwrap());
+    }
+
+    #[test]
+    fn test5() {
+        let mut env = HashMap::new();
+        let input = Chunk {
+            code: vec![
+                PushString(0),
+                PushBool(true),
+                BranchFalse(2),
+                Pop,
+                PushBool(false),
+                Instr::Assign,
+            ],
+            number_literals: vec![],
+            string_literals: vec!["key".to_string()],
+        };
+        eval_chunk(input, &mut env).unwrap();
+        assert_eq!(1, env.len());
+        assert_eq!(Bool(false), *env.get("key").unwrap());
     }
 }

@@ -1,9 +1,10 @@
+use std::mem::swap;
 use std::result;
 
 use crate::instr::Instr;
 use crate::token::Token;
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct Chunk {
     pub code: Vec<Instr>,
     pub number_literals: Vec<f64>,
@@ -67,7 +68,8 @@ impl Parser {
             Some(Token::Identifier(_)) => self.parse_assign()?,
             Some(Token::Print) => self.parse_print()?,
             _ => {
-                return Err(ParseError::Unsupported);
+                println!("{:?}", self.lookahead);
+                panic!();
             }
         };
 
@@ -107,10 +109,16 @@ impl Parser {
     fn parse_or(&mut self) -> Result<()> {
         self.parse_and()?;
         loop {
-            if let Some(Token::And) = self.lookahead {
+            if let Some(Token::Or) = self.lookahead {
                 self.next();
+                let mut old_output = Vec::new();
+                swap(&mut self.output, &mut old_output);
+                self.push(Instr::Pop);
                 self.parse_and()?;
-                self.push(Instr::And);
+                let right_side_len = self.output.len();
+                old_output.push(Instr::BranchTrue(right_side_len));
+                old_output.append(&mut self.output);
+                self.output = old_output;
             } else {
                 break;
             }
@@ -125,8 +133,15 @@ impl Parser {
         loop {
             if let Some(Token::And) = self.lookahead {
                 self.next();
+                let mut old_output = Vec::new();
+                swap(&mut self.output, &mut old_output);
+                // If it doesn't short circuit, we discard the left value.
+                self.push(Instr::Pop);
                 self.parse_comparison()?;
-                self.push(Instr::And);
+                let right_side_len = self.output.len();
+                old_output.push(Instr::BranchFalse(right_side_len));
+                old_output.append(&mut self.output);
+                self.output = old_output;
             } else {
                 break;
             }
@@ -499,6 +514,44 @@ mod tests {
             code: vec![PushString(0), PushNum(0), Instr::Assign],
             number_literals: vec![5.0],
             string_literals: vec!["a".to_string()],
+        };
+        check_it(input, output);
+    }
+
+    #[test]
+    fn test8() {
+        let input = vec![Token::Print, Token::True, Token::And, Token::False];
+        let output = Chunk {
+            code: vec![
+                PushBool(true),
+                BranchFalse(2),
+                Pop,
+                PushBool(false),
+                Instr::Print,
+            ],
+            number_literals: vec![],
+            string_literals: vec![],
+        };
+        check_it(input, output);
+    }
+
+    #[test]
+    fn test9() {
+        let input = vec![Token::Print, LiteralNumber(5.0), Or, Nil, And, True];
+        let code = vec![
+            PushNum(0),
+            BranchTrue(5),
+            Pop,
+            PushNil,
+            BranchFalse(2),
+            Pop,
+            PushBool(true),
+            Instr::Print,
+        ];
+        let output = Chunk {
+            code,
+            number_literals: vec![5.0],
+            string_literals: vec![],
         };
         check_it(input, output);
     }

@@ -248,4 +248,11 @@ mod tests {
         let out = vec![LiteralNumber(5.0), Plus, LiteralNumber(5.0), Eof];
         assert_eq!(lex_force(input), out);
     }
+
+    #[test]
+    fn test5() {
+        let input = "print 5 or 6;";
+        let out = vec![Print, LiteralNumber(5.0), Or, LiteralNumber(6.0), Semi, Eof];
+        assert_eq!(lex_force(input), out);
+    }
 }
