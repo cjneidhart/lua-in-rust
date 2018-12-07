@@ -13,6 +13,7 @@ pub struct Chunk {
 
 #[derive(Debug)]
 pub enum ParseError {
+    StatementStart(Token),
     Unsupported,
     Expect,
     ExprEof,
@@ -67,9 +68,11 @@ impl Parser {
         match self.lookahead {
             Some(Token::Identifier(_)) => self.parse_assign()?,
             Some(Token::Print) => self.parse_print()?,
-            _ => {
-                println!("{:?}", self.lookahead);
-                panic!();
+            Some(ref t) => {
+                return Err(ParseError::StatementStart(t.clone()));
+            }
+            None => {
+                return Ok(());
             }
         };
 
