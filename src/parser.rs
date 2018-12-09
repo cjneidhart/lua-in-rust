@@ -89,6 +89,7 @@ impl Parser {
     }
 
     fn parse_if(&mut self) -> Result<()> {
+        // Consume the 'If' token.
         self.next();
         self.parse_expr()?;
 
@@ -102,21 +103,55 @@ impl Parser {
         old_output.append(&mut self.output);
         self.output = old_output;
 
-        // TODO else, elseif
-        if let Some(Token::Else) = self.lookahead {
-            self.next();
-            let mut old_output = Vec::new();
-            swap(&mut self.output, &mut old_output);
-            self.parse_statements()?;
-            let body2_len = self.output.len() as isize;
-            old_output.push(Instr::Jump(body2_len));
+        self.parse_if_end()
+    }
+
+    /// Parse either:
+    /// - An 'elseif' condition and body, and any subsequent arms.
+    /// - An 'else' body.
+    /// - An 'end' token.
+    ///
+    /// Then handle the logic of closing those.
+    fn parse_if_end(&mut self) -> Result<()> {
+        let mut old_output = Vec::new();
+        swap(&mut self.output, &mut old_output);
+        if let Some(Token::ElseIf) = self.lookahead {
+            self.parse_elseif()?;
+        } else if let Some(Token::Else) = self.lookahead {
+            self.parse_else()?;
+        } else {
+            self.expect(Token::End)?;
             old_output.append(&mut self.output);
             self.output = old_output;
+            return Ok(());
         }
 
-        self.expect(Token::End)?;
+        let jump_len = self.output.len() as isize;
+        old_output.push(Instr::Jump(jump_len));
+        old_output.append(&mut self.output);
+        self.output = old_output;
 
         Ok(())
+    }
+
+    fn parse_elseif(&mut self) -> Result<()> {
+        self.next();
+        self.parse_expr()?;
+        self.expect(Token::Then)?;
+        let mut old_output = Vec::new();
+        swap(&mut self.output, &mut old_output);
+        self.parse_statements()?;
+        old_output.push(Instr::BranchFalse(self.output.len() as isize));
+        old_output.append(&mut self.output);
+        self.output = old_output;
+
+        self.parse_if_end()
+    }
+
+    fn parse_else(&mut self) -> Result<()> {
+        self.next();
+        self.parse_statements()?;
+        self.expect(Token::End)
     }
 
     fn parse_assign(&mut self) -> Result<()> {
@@ -692,6 +727,56 @@ mod tests {
         let chunk = Chunk {
             code,
             number_literals: vec![5.0, 4.0],
+            string_literals: vec!["a".to_string()],
+        };
+        check_it(input, chunk);
+    }
+
+    #[test]
+    fn test13() {
+        let input = vec![
+            If,
+            True,
+            Then,
+            Identifier("a".to_string()),
+            Token::Assign,
+            LiteralNumber(5.0),
+            ElseIf,
+            LiteralNumber(6.0),
+            Token::Equal,
+            LiteralNumber(7.0),
+            Then,
+            Identifier("a".to_string()),
+            Token::Assign,
+            LiteralNumber(3.0),
+            Else,
+            Identifier("a".to_string()),
+            Token::Assign,
+            LiteralNumber(4.0),
+            End,
+        ];
+        let code = vec![
+            PushBool(true),
+            BranchFalse(3),
+            PushString(0),
+            PushNum(0),
+            Instr::Assign,
+            Jump(11),
+            PushNum(1),
+            PushNum(2),
+            Instr::Equal,
+            BranchFalse(3),
+            PushString(0),
+            PushNum(3),
+            Instr::Assign,
+            Jump(3),
+            PushString(0),
+            PushNum(4),
+            Instr::Assign,
+        ];
+        let chunk = Chunk {
+            code,
+            number_literals: vec![5.0, 6.0, 7.0, 3.0, 4.0],
             string_literals: vec!["a".to_string()],
         };
         check_it(input, chunk);
