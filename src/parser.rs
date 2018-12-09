@@ -98,7 +98,13 @@ impl Parser {
         swap(&mut self.output, &mut old_output);
         self.parse_statements()?;
 
-        let body_len = self.output.len() as isize;
+        // If there's another arm, add 1 to the branch instruction to skip the closing Jump.
+        let body_len = self.output.len() as isize
+            + match self.lookahead {
+                Some(Token::Else) | Some(Token::ElseIf) => 1,
+                // If there's no End token, handle it later.
+                _ => 0,
+            };
         old_output.push(Instr::BranchFalse(body_len));
         old_output.append(&mut self.output);
         self.output = old_output;
@@ -113,25 +119,27 @@ impl Parser {
     ///
     /// Then handle the logic of closing those.
     fn parse_if_end(&mut self) -> Result<()> {
-        let mut old_output = Vec::new();
-        swap(&mut self.output, &mut old_output);
         if let Some(Token::ElseIf) = self.lookahead {
+            let mut old_output = Vec::new();
+            swap(&mut self.output, &mut old_output);
             self.parse_elseif()?;
+            self.close_else_or_elseif(old_output);
         } else if let Some(Token::Else) = self.lookahead {
+            let mut old_output = Vec::new();
+            swap(&mut self.output, &mut old_output);
             self.parse_else()?;
+            self.close_else_or_elseif(old_output);
         } else {
             self.expect(Token::End)?;
-            old_output.append(&mut self.output);
-            self.output = old_output;
-            return Ok(());
         }
+        Ok(())
+    }
 
+    fn close_else_or_elseif(&mut self, mut old_output: Vec<Instr>) {
         let jump_len = self.output.len() as isize;
         old_output.push(Instr::Jump(jump_len));
         old_output.append(&mut self.output);
         self.output = old_output;
-
-        Ok(())
     }
 
     fn parse_elseif(&mut self) -> Result<()> {
@@ -141,7 +149,13 @@ impl Parser {
         let mut old_output = Vec::new();
         swap(&mut self.output, &mut old_output);
         self.parse_statements()?;
-        old_output.push(Instr::BranchFalse(self.output.len() as isize));
+        let body_len = self.output.len() as isize
+            + match self.lookahead {
+                Some(Token::Else) | Some(Token::ElseIf) => 1,
+                // If there's no End token, handle it later.
+                _ => 0,
+            };
+        old_output.push(Instr::BranchFalse(body_len));
         old_output.append(&mut self.output);
         self.output = old_output;
 
@@ -715,7 +729,7 @@ mod tests {
         ];
         let code = vec![
             PushBool(true),
-            BranchFalse(3),
+            BranchFalse(4),
             PushString(0),
             PushNum(0),
             Instr::Assign,
@@ -757,7 +771,7 @@ mod tests {
         ];
         let code = vec![
             PushBool(true),
-            BranchFalse(3),
+            BranchFalse(4),
             PushString(0),
             PushNum(0),
             Instr::Assign,
@@ -765,7 +779,7 @@ mod tests {
             PushNum(1),
             PushNum(2),
             Instr::Equal,
-            BranchFalse(3),
+            BranchFalse(4),
             PushString(0),
             PushNum(3),
             Instr::Assign,
