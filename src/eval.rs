@@ -27,7 +27,11 @@ pub fn eval_chunk(input: Chunk, env: &mut GlobalEnv) -> Result<(), EvalError> {
                 safe_pop(&mut stack)?;
             }
             Jump(offset) => {
-                ip += offset as usize;
+                if offset < 0 {
+                    ip -= (-offset) as usize;
+                } else {
+                    ip += offset as usize;
+                }
             }
 
             BranchFalse(offset) => {
@@ -116,7 +120,7 @@ pub fn eval_chunk(input: Chunk, env: &mut GlobalEnv) -> Result<(), EvalError> {
             }
 
             // Order comparison
-            Less => eval_float_bool(<f64 as PartialOrd<f64>>::gt, instr, &mut stack)?,
+            Less => eval_float_bool(<f64 as PartialOrd<f64>>::lt, instr, &mut stack)?,
             Greater => eval_float_bool(<f64 as PartialOrd<f64>>::gt, instr, &mut stack)?,
             LessEqual => eval_float_bool(<f64 as PartialOrd<f64>>::le, instr, &mut stack)?,
             GreaterEqual => eval_float_bool(<f64 as PartialOrd<f64>>::ge, instr, &mut stack)?,
