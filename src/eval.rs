@@ -22,6 +22,7 @@ pub fn eval_chunk(input: Chunk, env: &mut GlobalEnv) -> Result<(), EvalError> {
     while ip < len {
         use self::Instr::*;
         let instr = input.code[ip];
+        ip += 1;
         match instr {
             Pop => {
                 safe_pop(&mut stack)?;
@@ -144,8 +145,6 @@ pub fn eval_chunk(input: Chunk, env: &mut GlobalEnv) -> Result<(), EvalError> {
 
             _ => panic!("We don't support that instruction yet."),
         }
-
-        ip += 1;
     }
 
     Ok(())
@@ -311,5 +310,33 @@ mod tests {
         };
         eval_chunk(chunk, &mut env).unwrap();
         assert_eq!(0, env.len());
+    }
+
+    #[test]
+    fn test8() {
+        //let mut env = HashMap::new();
+        let code = vec![
+            PushString(0),
+            PushNum(2),
+            Assign,
+            PushString(0),
+            GlobalLookup,
+            PushNum(0),
+            Less,
+            BranchFalse(43243),
+            PushString(0),
+            PushString(0),
+            GlobalLookup,
+            PushNum(1),
+            Add,
+            Assign,
+            Jump(-12),
+        ];
+        let chunk = Chunk {
+            code,
+            number_literals: vec![1.0, 10.0, 0.0],
+            string_literals: vec!["a".to_string()],
+        };
+        eval_chunk(chunk, &mut HashMap::new()).unwrap();
     }
 }

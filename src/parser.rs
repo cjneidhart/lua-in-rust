@@ -76,6 +76,7 @@ impl Parser {
             Some(Token::Identifier(_)) => self.parse_assign()?,
             Some(Token::If) => self.parse_if()?,
             Some(Token::Print) => self.parse_print()?,
+            Some(Token::While) => self.parse_while()?,
             _ => {
                 return Ok(());
             }
@@ -84,6 +85,26 @@ impl Parser {
         if let Some(Token::Semi) = self.lookahead {
             self.next();
         }
+
+        Ok(())
+    }
+
+    fn parse_while(&mut self) -> Result<()> {
+        self.next();
+        let condition_start = self.output.len() as isize;
+        self.parse_expr()?;
+        self.expect(Token::Do)?;
+        let mut old_output = Vec::new();
+        swap(&mut self.output, &mut old_output);
+        self.parse_statements()?;
+        old_output.push(Instr::BranchFalse(self.output.len() as isize + 1));
+        old_output.append(&mut self.output);
+        self.output = old_output;
+
+        self.expect(Token::End)?;
+        self.push(Instr::Jump(
+            condition_start - (self.output.len() as isize + 1),
+        ));
 
         Ok(())
     }
@@ -791,6 +812,43 @@ mod tests {
         let chunk = Chunk {
             code,
             number_literals: vec![5.0, 6.0, 7.0, 3.0, 4.0],
+            string_literals: vec!["a".to_string()],
+        };
+        check_it(input, chunk);
+    }
+
+    #[test]
+    fn test14() {
+        let input = vec![
+            While,
+            Identifier("a".to_string()),
+            Token::Less,
+            LiteralNumber(10.0),
+            Token::Do,
+            Identifier("a".to_string()),
+            Token::Assign,
+            Identifier("a".to_string()),
+            Plus,
+            LiteralNumber(1.0),
+            End,
+        ];
+        let code = vec![
+            PushString(0),
+            GlobalLookup,
+            PushNum(0),
+            Instr::Less,
+            BranchFalse(7),
+            PushString(0),
+            PushString(0),
+            GlobalLookup,
+            PushNum(1),
+            Add,
+            Instr::Assign,
+            Jump(-12),
+        ];
+        let chunk = Chunk {
+            code,
+            number_literals: vec![10.0, 1.0],
             string_literals: vec!["a".to_string()],
         };
         check_it(input, chunk);
