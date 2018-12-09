@@ -62,7 +62,8 @@ impl Parser {
     fn parse_statements(&mut self) -> Result<()> {
         loop {
             match self.lookahead {
-                None | Some(Token::Eof) | Some(Token::End) => break,
+                None | Some(Token::Eof) | Some(Token::End) | Some(Token::Else)
+                | Some(Token::ElseIf) => break,
                 _ => self.parse_stmt()?,
             };
         }
@@ -75,10 +76,7 @@ impl Parser {
             Some(Token::Identifier(_)) => self.parse_assign()?,
             Some(Token::If) => self.parse_if()?,
             Some(Token::Print) => self.parse_print()?,
-            Some(ref t) => {
-                return Err(ParseError::StatementStart(t.clone()));
-            }
-            None => {
+            _ => {
                 return Ok(());
             }
         };
@@ -99,13 +97,24 @@ impl Parser {
         swap(&mut self.output, &mut old_output);
         self.parse_statements()?;
 
-        // TODO else, elseif
-        self.expect(Token::End)?;
-
         let body_len = self.output.len() as isize;
         old_output.push(Instr::BranchFalse(body_len));
         old_output.append(&mut self.output);
         self.output = old_output;
+
+        // TODO else, elseif
+        if let Some(Token::Else) = self.lookahead {
+            self.next();
+            let mut old_output = Vec::new();
+            swap(&mut self.output, &mut old_output);
+            self.parse_statements()?;
+            let body2_len = self.output.len() as isize;
+            old_output.push(Instr::Jump(body2_len));
+            old_output.append(&mut self.output);
+            self.output = old_output;
+        }
+
+        self.expect(Token::End)?;
 
         Ok(())
     }
@@ -650,6 +659,40 @@ mod tests {
             code,
             number_literals: vec![5.0, 4.0],
             string_literals: vec!["a".to_string(), "b".to_string()],
+        };
+        check_it(input, chunk);
+    }
+
+    #[test]
+    fn test12() {
+        let input = vec![
+            If,
+            True,
+            Then,
+            Identifier("a".to_string()),
+            Token::Assign,
+            LiteralNumber(5.0),
+            Else,
+            Identifier("a".to_string()),
+            Token::Assign,
+            LiteralNumber(4.0),
+            End,
+        ];
+        let code = vec![
+            PushBool(true),
+            BranchFalse(3),
+            PushString(0),
+            PushNum(0),
+            Instr::Assign,
+            Jump(3),
+            PushString(0),
+            PushNum(1),
+            Instr::Assign,
+        ];
+        let chunk = Chunk {
+            code,
+            number_literals: vec![5.0, 4.0],
+            string_literals: vec!["a".to_string()],
         };
         check_it(input, chunk);
     }
