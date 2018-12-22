@@ -30,6 +30,6 @@ fn main() {
                 continue;
             }
         };
-        eval::eval_chunk(chunk, &mut env).unwrap();
+        eval::eval_chunk(&chunk, &mut env).unwrap();
     }
 }

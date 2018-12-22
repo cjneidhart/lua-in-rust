@@ -15,7 +15,7 @@ pub enum EvalError {
     Other,
 }
 
-pub fn eval_chunk(input: Chunk, env: &mut GlobalEnv) -> Result<(), EvalError> {
+pub fn eval_chunk(input: &Chunk, env: &mut GlobalEnv) -> Result<(), EvalError> {
     let mut stack = Vec::<LuaVal>::new();
     let mut ip = 0;
     let len = input.code.len();
@@ -216,7 +216,7 @@ mod tests {
             number_literals: vec![1.0],
             string_literals: vec!["a".to_string()],
         };
-        eval_chunk(input, &mut env).unwrap();
+        eval_chunk(&input, &mut env).unwrap();
         assert_eq!(1, env.len());
         assert_eq!(LuaVal::Number(1.0), *env.get("a").unwrap());
     }
@@ -230,7 +230,7 @@ mod tests {
             //string_literals: vec![],
             string_literals: vec!["key".to_string(), "a".to_string(), "b".to_string()],
         };
-        eval_chunk(input, &mut env).unwrap();
+        eval_chunk(&input, &mut env).unwrap();
         assert_eq!(1, env.len());
         assert_eq!(
             LuaVal::LuaString("ab".to_string()),
@@ -246,7 +246,7 @@ mod tests {
             number_literals: vec![2.5],
             string_literals: vec!["a".to_string()],
         };
-        eval_chunk(input, &mut env).unwrap();
+        eval_chunk(&input, &mut env).unwrap();
         assert_eq!(1, env.len());
         assert_eq!(LuaVal::Bool(true), *env.get("a").unwrap());
     }
@@ -266,7 +266,7 @@ mod tests {
             number_literals: vec![],
             string_literals: vec!["key".to_string()],
         };
-        eval_chunk(input, &mut env).unwrap();
+        eval_chunk(&input, &mut env).unwrap();
         assert_eq!(1, env.len());
         assert_eq!(Bool(false), *env.get("key").unwrap());
     }
@@ -286,7 +286,7 @@ mod tests {
             number_literals: vec![5.0],
             string_literals: vec!["a".to_string()],
         };
-        eval_chunk(chunk, &mut env).unwrap();
+        eval_chunk(&chunk, &mut env).unwrap();
         assert_eq!(1, env.len());
         assert_eq!(Number(5.0), *env.get("a").unwrap());
     }
@@ -308,7 +308,7 @@ mod tests {
             number_literals: vec![2.0],
             string_literals: vec!["a".to_string()],
         };
-        eval_chunk(chunk, &mut env).unwrap();
+        eval_chunk(&chunk, &mut env).unwrap();
         assert_eq!(0, env.len());
     }
 
@@ -337,6 +337,6 @@ mod tests {
             number_literals: vec![1.0, 10.0, 0.0],
             string_literals: vec!["a".to_string()],
         };
-        eval_chunk(chunk, &mut HashMap::new()).unwrap();
+        eval_chunk(&chunk, &mut HashMap::new()).unwrap();
     }
 }
