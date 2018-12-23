@@ -63,7 +63,7 @@ impl Parser {
         loop {
             match self.lookahead {
                 None | Some(Token::Eof) | Some(Token::End) | Some(Token::Else)
-                | Some(Token::ElseIf) => break,
+                | Some(Token::ElseIf) | Some(Token::Until) => break,
                 _ => self.parse_stmt()?,
             };
         }
@@ -77,6 +77,7 @@ impl Parser {
             Some(Token::If) => self.parse_if()?,
             Some(Token::Print) => self.parse_print()?,
             Some(Token::While) => self.parse_while()?,
+            Some(Token::Repeat) => self.parse_repeat()?,
             _ => {
                 return Ok(());
             }
@@ -86,6 +87,17 @@ impl Parser {
             self.next();
         }
 
+        Ok(())
+    }
+
+    fn parse_repeat(&mut self) -> Result<()> {
+        self.next();
+        let body_start = self.output.len() as isize;
+        self.parse_statements()?;
+        self.expect(Token::Until)?;
+        self.parse_expr()?;
+        let expr_end = self.output.len() as isize;
+        self.push(Instr::BranchFalse(body_start - (expr_end + 1)));
         Ok(())
     }
 
@@ -850,6 +862,39 @@ mod tests {
             code,
             number_literals: vec![10.0, 1.0],
             string_literals: vec!["a".to_string()],
+        };
+        check_it(input, chunk);
+    }
+
+    #[test]
+    fn test15() {
+        let input = vec![
+            Repeat,
+            Token::Print,
+            LiteralNumber(5.0),
+            Until,
+            Identifier("a".to_string()),
+            Token::Equal,
+            Identifier("b".to_string()),
+            Token::Print,
+            LiteralNumber(4.0),
+        ];
+        let code = vec![
+            PushNum(0),
+            Instr::Print,
+            PushString(0),
+            GlobalLookup,
+            PushString(1),
+            GlobalLookup,
+            Instr::Equal,
+            BranchFalse(-8),
+            PushNum(1),
+            Instr::Print,
+        ];
+        let chunk = Chunk {
+            code,
+            number_literals: vec![5.0, 4.0],
+            string_literals: vec!["a".to_string(), "b".to_string()],
         };
         check_it(input, chunk);
     }
