@@ -104,20 +104,12 @@ pub fn eval_chunk(input: &Chunk, env: &mut GlobalEnv) -> Result<(), EvalError> {
             Equal => {
                 let e2 = stack.pop().unwrap();
                 let e1 = stack.pop().unwrap();
-                match (e1, e2) {
-                    (Number(n1), Number(n2)) => stack.push(Bool(n1 == n2)),
-                    (Bool(b1), Bool(b2)) => stack.push(Bool(b1 == b2)),
-                    _ => panic!(),
-                }
+                stack.push(Bool(e1 == e2));
             }
             NotEqual => {
                 let e2 = stack.pop().unwrap();
                 let e1 = stack.pop().unwrap();
-                match (e1, e2) {
-                    (Number(n1), Number(n2)) => stack.push(Bool(n1 != n2)),
-                    (Bool(b1), Bool(b2)) => stack.push(Bool(b1 != b2)),
-                    _ => panic!(),
-                }
+                stack.push(Bool(e1 != e2));
             }
 
             // Order comparison
