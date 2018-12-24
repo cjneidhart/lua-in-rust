@@ -78,6 +78,7 @@ impl Parser {
             Some(Token::Print) => self.parse_print()?,
             Some(Token::While) => self.parse_while()?,
             Some(Token::Repeat) => self.parse_repeat()?,
+            Some(Token::Do) => self.parse_do()?,
             _ => {
                 return Ok(());
             }
@@ -87,6 +88,13 @@ impl Parser {
             self.next();
         }
 
+        Ok(())
+    }
+
+    fn parse_do(&mut self) -> Result<()> {
+        self.next();
+        self.parse_statements()?;
+        self.expect(Token::End)?;
         Ok(())
     }
 
