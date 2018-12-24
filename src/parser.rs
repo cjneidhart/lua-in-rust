@@ -218,7 +218,7 @@ impl Parser {
         self.push(Instr::PushString(i));
         self.expect(Token::Assign)?;
         self.parse_expr()?;
-        self.push(Instr::Assign);
+        self.push(Instr::SetGlobal);
         Ok(())
     }
 
@@ -436,7 +436,7 @@ impl Parser {
             Some(Token::Identifier(name)) => {
                 let i = find_or_add(&mut self.string_literals, name);
                 self.push(Instr::PushString(i));
-                self.push(Instr::GlobalLookup);
+                self.push(Instr::GetGlobal);
             }
             Some(Token::LiteralNumber(n)) => {
                 let i = find_or_add(&mut self.number_literals, n);
@@ -639,12 +639,12 @@ mod tests {
     fn test7() {
         let input = vec![
             Token::Identifier("a".to_string()),
-            Token::Assign,
+            Assign,
             LiteralNumber(5.0),
             Eof,
         ];
         let output = Chunk {
-            code: vec![PushString(0), PushNum(0), Instr::Assign],
+            code: vec![PushString(0), PushNum(0), SetGlobal],
             number_literals: vec![5.0],
             string_literals: vec!["a".to_string()],
         };
@@ -696,7 +696,7 @@ mod tests {
             True,
             Then,
             Identifier("a".to_string()),
-            Token::Assign,
+            Assign,
             LiteralNumber(5.0),
             End,
         ];
@@ -705,7 +705,7 @@ mod tests {
             BranchFalse(3),
             PushString(0),
             PushNum(0),
-            Instr::Assign,
+            SetGlobal,
         ];
         let chunk = Chunk {
             code,
@@ -722,13 +722,13 @@ mod tests {
             True,
             Then,
             Identifier("a".to_string()),
-            Token::Assign,
+            Assign,
             LiteralNumber(5.0),
             If,
             True,
             Then,
             Identifier("b".to_string()),
-            Token::Assign,
+            Assign,
             LiteralNumber(4.0),
             End,
             End,
@@ -738,12 +738,12 @@ mod tests {
             BranchFalse(8),
             PushString(0),
             PushNum(0),
-            Instr::Assign,
+            SetGlobal,
             PushBool(true),
             BranchFalse(3),
             PushString(1),
             PushNum(1),
-            Instr::Assign,
+            SetGlobal,
         ];
         let chunk = Chunk {
             code,
@@ -760,11 +760,11 @@ mod tests {
             True,
             Then,
             Identifier("a".to_string()),
-            Token::Assign,
+            Assign,
             LiteralNumber(5.0),
             Else,
             Identifier("a".to_string()),
-            Token::Assign,
+            Assign,
             LiteralNumber(4.0),
             End,
         ];
@@ -773,11 +773,11 @@ mod tests {
             BranchFalse(4),
             PushString(0),
             PushNum(0),
-            Instr::Assign,
+            SetGlobal,
             Jump(3),
             PushString(0),
             PushNum(1),
-            Instr::Assign,
+            SetGlobal,
         ];
         let chunk = Chunk {
             code,
@@ -794,7 +794,7 @@ mod tests {
             True,
             Then,
             Identifier("a".to_string()),
-            Token::Assign,
+            Assign,
             LiteralNumber(5.0),
             ElseIf,
             LiteralNumber(6.0),
@@ -802,11 +802,11 @@ mod tests {
             LiteralNumber(7.0),
             Then,
             Identifier("a".to_string()),
-            Token::Assign,
+            Assign,
             LiteralNumber(3.0),
             Else,
             Identifier("a".to_string()),
-            Token::Assign,
+            Assign,
             LiteralNumber(4.0),
             End,
         ];
@@ -815,7 +815,7 @@ mod tests {
             BranchFalse(4),
             PushString(0),
             PushNum(0),
-            Instr::Assign,
+            SetGlobal,
             Jump(11),
             PushNum(1),
             PushNum(2),
@@ -823,11 +823,11 @@ mod tests {
             BranchFalse(4),
             PushString(0),
             PushNum(3),
-            Instr::Assign,
+            SetGlobal,
             Jump(3),
             PushString(0),
             PushNum(4),
-            Instr::Assign,
+            SetGlobal,
         ];
         let chunk = Chunk {
             code,
@@ -846,7 +846,7 @@ mod tests {
             LiteralNumber(10.0),
             Token::Do,
             Identifier("a".to_string()),
-            Token::Assign,
+            Assign,
             Identifier("a".to_string()),
             Plus,
             LiteralNumber(1.0),
@@ -854,16 +854,16 @@ mod tests {
         ];
         let code = vec![
             PushString(0),
-            GlobalLookup,
+            GetGlobal,
             PushNum(0),
             Instr::Less,
             BranchFalse(7),
             PushString(0),
             PushString(0),
-            GlobalLookup,
+            GetGlobal,
             PushNum(1),
             Add,
-            Instr::Assign,
+            SetGlobal,
             Jump(-12),
         ];
         let chunk = Chunk {
@@ -891,9 +891,9 @@ mod tests {
             PushNum(0),
             Instr::Print,
             PushString(0),
-            GlobalLookup,
+            GetGlobal,
             PushString(1),
-            GlobalLookup,
+            GetGlobal,
             Instr::Equal,
             BranchFalse(-8),
             PushNum(1),

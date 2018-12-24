@@ -66,17 +66,17 @@ pub fn eval_chunk(input: &Chunk, env: &mut GlobalEnv) -> Result<(), EvalError> {
                 let e = stack.pop().unwrap();
                 println!("{}", e);
             }
-            Assign => {
+            SetGlobal => {
                 let val = stack.pop().unwrap();
                 let name = stack.pop().unwrap();
                 if let LuaVal::LuaString(s) = name {
                     env.insert(s, val);
                 } else {
-                    return Err(EvalError::DoubleTypeError(Instr::Assign, name, val));
+                    return Err(EvalError::DoubleTypeError(SetGlobal, name, val));
                 }
             }
 
-            GlobalLookup => {
+            GetGlobal => {
                 let name = stack.pop().unwrap();
                 if let LuaVal::LuaString(s) = name {
                     let val = env.get(&s).unwrap_or(&LuaVal::Nil);
@@ -204,7 +204,7 @@ mod tests {
     fn test1() {
         let mut env = HashMap::new();
         let input = Chunk {
-            code: vec![PushString(0), PushNum(0), Assign],
+            code: vec![PushString(0), PushNum(0), SetGlobal],
             number_literals: vec![1.0],
             string_literals: vec!["a".to_string()],
         };
@@ -217,7 +217,13 @@ mod tests {
     fn test2() {
         let mut env = HashMap::new();
         let input = Chunk {
-            code: vec![PushString(0), PushString(1), PushString(2), Concat, Assign],
+            code: vec![
+                PushString(0),
+                PushString(1),
+                PushString(2),
+                Concat,
+                SetGlobal,
+            ],
             number_literals: vec![],
             //string_literals: vec![],
             string_literals: vec!["key".to_string(), "a".to_string(), "b".to_string()],
@@ -234,7 +240,7 @@ mod tests {
     fn test4() {
         let mut env = HashMap::new();
         let input = Chunk {
-            code: vec![PushString(0), PushNum(0), PushNum(0), Equal, Assign],
+            code: vec![PushString(0), PushNum(0), PushNum(0), Equal, SetGlobal],
             number_literals: vec![2.5],
             string_literals: vec!["a".to_string()],
         };
@@ -253,7 +259,7 @@ mod tests {
                 BranchFalseKeep(2),
                 Pop,
                 PushBool(false),
-                Instr::Assign,
+                SetGlobal,
             ],
             number_literals: vec![],
             string_literals: vec!["key".to_string()],
@@ -271,7 +277,7 @@ mod tests {
             BranchFalse(3),
             PushString(0),
             PushNum(0),
-            Instr::Assign,
+            SetGlobal,
         ];
         let chunk = Chunk {
             code,
@@ -293,7 +299,7 @@ mod tests {
             BranchFalse(3),
             PushString(0),
             PushBool(true),
-            Instr::Assign,
+            SetGlobal,
         ];
         let chunk = Chunk {
             code,
@@ -310,18 +316,18 @@ mod tests {
         let code = vec![
             PushString(0),
             PushNum(2),
-            Assign,
+            SetGlobal,
             PushString(0),
-            GlobalLookup,
+            GetGlobal,
             PushNum(0),
             Less,
             BranchFalse(43243),
             PushString(0),
             PushString(0),
-            GlobalLookup,
+            GetGlobal,
             PushNum(1),
             Add,
-            Assign,
+            SetGlobal,
             Jump(-12),
         ];
         let chunk = Chunk {
