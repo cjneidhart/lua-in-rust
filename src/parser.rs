@@ -1007,10 +1007,7 @@ mod tests {
             Assign,
             LiteralNumber(2.0),
         ];
-        let code = vec![
-            PushNum(0),
-            SetLocal(0),
-        ];
+        let code = vec![PushNum(0), SetLocal(0)];
         let chunk = Chunk {
             code,
             number_literals: vec![2.0],
@@ -1030,10 +1027,7 @@ mod tests {
             Token::Print,
             Identifier("j".to_string()),
         ];
-        let code = vec![
-            GetLocal(1),
-            Instr::Print,
-        ];
+        let code = vec![GetLocal(1), Instr::Print];
         let chunk = Chunk {
             code,
             number_literals: vec![],
@@ -1057,12 +1051,7 @@ mod tests {
             Token::Print,
             Identifier("i".to_string()),
         ];
-        let code = vec![
-            GetLocal(1),
-            Instr::Print,
-            GetLocal(0),
-            Instr::Print,
-        ];
+        let code = vec![GetLocal(1), Instr::Print, GetLocal(0), Instr::Print];
         let chunk = Chunk {
             code,
             number_literals: vec![],
