@@ -216,6 +216,7 @@ impl Parser {
     ///
     /// Then handle the logic of closing those.
     fn parse_if_end(&mut self) -> Result<()> {
+        self.level_down();
         if let Some(Token::ElseIf) = self.lookahead {
             let mut old_output = Vec::new();
             swap(&mut self.output, &mut old_output);
@@ -228,7 +229,6 @@ impl Parser {
             self.close_else_or_elseif(old_output);
         } else {
             self.expect(Token::End)?;
-            self.level_down();
         }
         Ok(())
     }
@@ -241,6 +241,7 @@ impl Parser {
     }
 
     fn parse_elseif(&mut self) -> Result<()> {
+        self.nest_level += 1;
         self.next();
         self.parse_expr()?;
         self.expect(Token::Then)?;
@@ -261,6 +262,7 @@ impl Parser {
     }
 
     fn parse_else(&mut self) -> Result<()> {
+        self.nest_level += 1;
         self.next();
         self.parse_statements()?;
         self.expect(Token::End)
@@ -1085,6 +1087,37 @@ mod tests {
             number_literals: vec![],
             string_literals: vec!["i".to_string()],
             num_locals: 1,
+        };
+        check_it(input, chunk);
+    }
+
+    #[test]
+    fn test20() {
+        let input = vec![
+            Local,
+            Identifier("i".to_string()),
+            If,
+            False,
+            Then,
+            Local,
+            Identifier("i".to_string()),
+            Else,
+            Token::Print,
+            Identifier("i".to_string()),
+            End,
+        ];
+        let code = vec![
+            PushBool(false),
+            BranchFalse(1),
+            Jump(2),
+            GetLocal(0),
+            Instr::Print,
+        ];
+        let chunk = Chunk {
+            code,
+            number_literals: vec![],
+            string_literals: vec![],
+            num_locals: 2,
         };
         check_it(input, chunk);
     }
