@@ -9,6 +9,7 @@ pub struct Chunk {
     pub code: Vec<Instr>,
     pub number_literals: Vec<f64>,
     pub string_literals: Vec<String>,
+    pub num_locals: usize,
 }
 
 #[derive(Debug)]
@@ -32,6 +33,9 @@ struct Parser {
     lookahead: Option<Token>,
     string_literals: Vec<String>,
     number_literals: Vec<f64>,
+    nest_level: i32,
+    locals: Vec<(String, i32)>,
+    num_locals: usize,
 }
 
 impl Parser {
@@ -44,6 +48,9 @@ impl Parser {
             output: Vec::new(),
             string_literals: Vec::new(),
             number_literals: Vec::new(),
+            nest_level: 0,
+            locals: Vec::new(),
+            num_locals: 0,
         }
     }
 
@@ -54,6 +61,7 @@ impl Parser {
             code: self.output,
             number_literals: self.number_literals,
             string_literals: self.string_literals,
+            num_locals: self.num_locals,
         };
 
         Ok(c)
@@ -79,6 +87,7 @@ impl Parser {
             Some(Token::While) => self.parse_while()?,
             Some(Token::Repeat) => self.parse_repeat()?,
             Some(Token::Do) => self.parse_do()?,
+            Some(Token::Local) => self.parse_local()?,
             _ => {
                 return Ok(());
             }
@@ -91,14 +100,57 @@ impl Parser {
         Ok(())
     }
 
+    fn parse_local(&mut self) -> Result<()> {
+        self.next();
+        self.parse_each_local()
+    }
+
+    fn set_num_locals(&mut self) {
+        if self.locals.len() > self.num_locals {
+            self.num_locals = self.locals.len();
+        }
+    }
+
+    fn parse_each_local(&mut self) -> Result<()> {
+        let name = if let Some(Token::Identifier(name)) = self.next() {
+            name
+        } else {
+            return Err(ParseError::Other);
+        };
+        self.locals.push((name, self.nest_level));
+        self.set_num_locals();
+
+        if let Some(Token::Comma) = self.lookahead {
+            self.next();
+            self.parse_each_local()
+        } else {
+            Ok(())
+        }
+    }
+
     fn parse_do(&mut self) -> Result<()> {
+        self.nest_level += 1;
         self.next();
         self.parse_statements()?;
         self.expect(Token::End)?;
+        self.level_down();
         Ok(())
     }
 
+    /// Lower the nesting level by one, discarding any locals from that block.
+    fn level_down(&mut self) {
+        while let Some((_, lvl)) = self.locals.last() {
+            if *lvl == self.nest_level {
+                self.locals.pop();
+            } else {
+                break;
+            }
+        }
+        self.nest_level -= 1;
+    }
+
     fn parse_repeat(&mut self) -> Result<()> {
+        self.nest_level += 1;
         self.next();
         let body_start = self.output.len() as isize;
         self.parse_statements()?;
@@ -106,10 +158,12 @@ impl Parser {
         self.parse_expr()?;
         let expr_end = self.output.len() as isize;
         self.push(Instr::BranchFalse(body_start - (expr_end + 1)));
+        self.level_down();
         Ok(())
     }
 
     fn parse_while(&mut self) -> Result<()> {
+        self.nest_level += 1;
         self.next();
         let condition_start = self.output.len() as isize;
         self.parse_expr()?;
@@ -125,11 +179,13 @@ impl Parser {
         self.push(Instr::Jump(
             condition_start - (self.output.len() as isize + 1),
         ));
+        self.level_down();
 
         Ok(())
     }
 
     fn parse_if(&mut self) -> Result<()> {
+        self.nest_level += 1;
         // Consume the 'If' token.
         self.next();
         self.parse_expr()?;
@@ -172,6 +228,7 @@ impl Parser {
             self.close_else_or_elseif(old_output);
         } else {
             self.expect(Token::End)?;
+            self.level_down();
         }
         Ok(())
     }
@@ -214,11 +271,21 @@ impl Parser {
             Some(Token::Identifier(name)) => name,
             _ => return Err(ParseError::Other),
         };
-        let i = find_or_add(&mut self.string_literals, name);
-        self.push(Instr::PushString(i));
+
+        let opt_local_idx = find_last_local(&self.locals, name.as_str());
+        if opt_local_idx.is_none() {
+            let i = find_or_add(&mut self.string_literals, name);
+            self.push(Instr::PushString(i));
+        }
+
         self.expect(Token::Assign)?;
         self.parse_expr()?;
-        self.push(Instr::SetGlobal);
+        let instr = match opt_local_idx {
+            Some(i) => Instr::SetLocal(i),
+            None => Instr::SetGlobal,
+        };
+        self.push(instr);
+
         Ok(())
     }
 
@@ -237,20 +304,16 @@ impl Parser {
     /// Attempt to parse an 'or' expression. Precedence 8.
     fn parse_or(&mut self) -> Result<()> {
         self.parse_and()?;
-        loop {
-            if let Some(Token::Or) = self.lookahead {
-                self.next();
-                let mut old_output = Vec::new();
-                swap(&mut self.output, &mut old_output);
-                self.push(Instr::Pop);
-                self.parse_and()?;
-                let right_side_len = self.output.len();
-                old_output.push(Instr::BranchTrueKeep(right_side_len as isize));
-                old_output.append(&mut self.output);
-                self.output = old_output;
-            } else {
-                break;
-            }
+        while let Some(Token::Or) = self.lookahead {
+            self.next();
+            let mut old_output = Vec::new();
+            swap(&mut self.output, &mut old_output);
+            self.push(Instr::Pop);
+            self.parse_and()?;
+            let right_side_len = self.output.len();
+            old_output.push(Instr::BranchTrueKeep(right_side_len as isize));
+            old_output.append(&mut self.output);
+            self.output = old_output;
         }
 
         Ok(())
@@ -259,21 +322,17 @@ impl Parser {
     /// Attempt to parse an 'and' expression. Precedence 7.
     fn parse_and(&mut self) -> Result<()> {
         self.parse_comparison()?;
-        loop {
-            if let Some(Token::And) = self.lookahead {
-                self.next();
-                let mut old_output = Vec::new();
-                swap(&mut self.output, &mut old_output);
-                // If it doesn't short circuit, we discard the left value.
-                self.push(Instr::Pop);
-                self.parse_comparison()?;
-                let right_side_len = self.output.len();
-                old_output.push(Instr::BranchFalseKeep(right_side_len as isize));
-                old_output.append(&mut self.output);
-                self.output = old_output;
-            } else {
-                break;
-            }
+        while let Some(Token::And) = self.lookahead {
+            self.next();
+            let mut old_output = Vec::new();
+            swap(&mut self.output, &mut old_output);
+            // If it doesn't short circuit, we discard the left value.
+            self.push(Instr::Pop);
+            self.parse_comparison()?;
+            let right_side_len = self.output.len();
+            old_output.push(Instr::BranchFalseKeep(right_side_len as isize));
+            old_output.append(&mut self.output);
+            self.output = old_output;
         }
 
         Ok(())
@@ -433,11 +492,16 @@ impl Parser {
                 self.parse_expr()?;
                 self.expect(Token::RParen)?;
             }
-            Some(Token::Identifier(name)) => {
-                let i = find_or_add(&mut self.string_literals, name);
-                self.push(Instr::PushString(i));
-                self.push(Instr::GetGlobal);
-            }
+            Some(Token::Identifier(name)) => match find_last_local(&self.locals, name.as_str()) {
+                Some(i) => {
+                    self.push(Instr::GetLocal(i));
+                }
+                None => {
+                    let i = find_or_add(&mut self.string_literals, name);
+                    self.push(Instr::PushString(i));
+                    self.push(Instr::GetGlobal);
+                }
+            },
             Some(Token::LiteralNumber(n)) => {
                 let i = find_or_add(&mut self.number_literals, n);
                 self.push(Instr::PushNum(i));
@@ -488,6 +552,18 @@ pub fn parse_chunk(tokens: Vec<Token>) -> result::Result<Chunk, ParseError> {
     p.parse_chunk()
 }
 
+fn find_last_local(locals: &[(String, i32)], name: &str) -> Option<usize> {
+    let mut i = locals.len();
+    while i > 0 {
+        i -= 1;
+        if locals[i].0 == name {
+            return Some(i);
+        }
+    }
+
+    None
+}
+
 /// Returns the index of a number in the literals list, adding it if it does not exist.
 fn find_or_add<T>(queue: &mut Vec<T>, x: T) -> usize
 where
@@ -526,6 +602,7 @@ mod tests {
             code: vec![PushNum(0), PushNum(1), Add, Instr::Print],
             number_literals: vec![5.0, 6.0],
             string_literals: vec![],
+            num_locals: 0,
         };
         check_it(input, out);
     }
@@ -544,6 +621,7 @@ mod tests {
             code: vec![PushNum(0), PushNum(1), Pow, Negate, Instr::Print],
             number_literals: vec![5.0, 2.0],
             string_literals: vec![],
+            num_locals: 0,
         };
         check_it(input, out);
     }
@@ -570,6 +648,7 @@ mod tests {
             ],
             number_literals: vec![5.0],
             string_literals: vec!["hi".to_string()],
+            num_locals: 0,
         };
         check_it(input, out);
     }
@@ -596,6 +675,7 @@ mod tests {
             ],
             number_literals: vec![1.0, 2.0, 3.0],
             string_literals: vec![],
+            num_locals: 0,
         };
         check_it(input, output);
     }
@@ -614,6 +694,7 @@ mod tests {
             code: vec![PushNum(0), PushNum(1), Negate, Pow, Instr::Print],
             number_literals: vec![2.0, 3.0],
             string_literals: vec![],
+            num_locals: 0,
         };
         check_it(input, output);
     }
@@ -631,6 +712,7 @@ mod tests {
             code: vec![PushNum(0), Instr::Not, Instr::Not, Instr::Print],
             number_literals: vec![1.0],
             string_literals: vec![],
+            num_locals: 0,
         };
         check_it(input, output);
     }
@@ -647,6 +729,7 @@ mod tests {
             code: vec![PushString(0), PushNum(0), SetGlobal],
             number_literals: vec![5.0],
             string_literals: vec!["a".to_string()],
+            num_locals: 0,
         };
         check_it(input, output);
     }
@@ -664,6 +747,7 @@ mod tests {
             ],
             number_literals: vec![],
             string_literals: vec![],
+            num_locals: 0,
         };
         check_it(input, output);
     }
@@ -685,6 +769,7 @@ mod tests {
             code,
             number_literals: vec![5.0],
             string_literals: vec![],
+            num_locals: 0,
         };
         check_it(input, output);
     }
@@ -711,6 +796,7 @@ mod tests {
             code,
             number_literals: vec![5.0],
             string_literals: vec!["a".to_string()],
+            num_locals: 0,
         };
         check_it(input, chunk);
     }
@@ -749,6 +835,7 @@ mod tests {
             code,
             number_literals: vec![5.0, 4.0],
             string_literals: vec!["a".to_string(), "b".to_string()],
+            num_locals: 0,
         };
         check_it(input, chunk);
     }
@@ -783,6 +870,7 @@ mod tests {
             code,
             number_literals: vec![5.0, 4.0],
             string_literals: vec!["a".to_string()],
+            num_locals: 0,
         };
         check_it(input, chunk);
     }
@@ -833,6 +921,7 @@ mod tests {
             code,
             number_literals: vec![5.0, 6.0, 7.0, 3.0, 4.0],
             string_literals: vec!["a".to_string()],
+            num_locals: 0,
         };
         check_it(input, chunk);
     }
@@ -870,6 +959,7 @@ mod tests {
             code,
             number_literals: vec![10.0, 1.0],
             string_literals: vec!["a".to_string()],
+            num_locals: 0,
         };
         check_it(input, chunk);
     }
@@ -903,6 +993,109 @@ mod tests {
             code,
             number_literals: vec![5.0, 4.0],
             string_literals: vec!["a".to_string(), "b".to_string()],
+            num_locals: 0,
+        };
+        check_it(input, chunk);
+    }
+
+    #[test]
+    fn test16() {
+        let input = vec![
+            Local,
+            Identifier("i".to_string()),
+            Identifier("i".to_string()),
+            Assign,
+            LiteralNumber(2.0),
+        ];
+        let code = vec![
+            PushNum(0),
+            SetLocal(0),
+        ];
+        let chunk = Chunk {
+            code,
+            number_literals: vec![2.0],
+            string_literals: vec![],
+            num_locals: 1,
+        };
+        check_it(input, chunk);
+    }
+
+    #[test]
+    fn test17() {
+        let input = vec![
+            Local,
+            Identifier("i".to_string()),
+            Comma,
+            Identifier("j".to_string()),
+            Token::Print,
+            Identifier("j".to_string()),
+        ];
+        let code = vec![
+            GetLocal(1),
+            Instr::Print,
+        ];
+        let chunk = Chunk {
+            code,
+            number_literals: vec![],
+            string_literals: vec![],
+            num_locals: 2,
+        };
+        check_it(input, chunk);
+    }
+
+    #[test]
+    fn test18() {
+        let input = vec![
+            Local,
+            Identifier("i".to_string()),
+            Do,
+            Local,
+            Identifier("i".to_string()),
+            Token::Print,
+            Identifier("i".to_string()),
+            End,
+            Token::Print,
+            Identifier("i".to_string()),
+        ];
+        let code = vec![
+            GetLocal(1),
+            Instr::Print,
+            GetLocal(0),
+            Instr::Print,
+        ];
+        let chunk = Chunk {
+            code,
+            number_literals: vec![],
+            string_literals: vec![],
+            num_locals: 2,
+        };
+        check_it(input, chunk);
+    }
+
+    #[test]
+    fn test19() {
+        let input = vec![
+            Do,
+            Local,
+            Identifier("i".to_string()),
+            Token::Print,
+            Identifier("i".to_string()),
+            End,
+            Token::Print,
+            Identifier("i".to_string()),
+        ];
+        let code = vec![
+            GetLocal(0),
+            Instr::Print,
+            PushString(0),
+            GetGlobal,
+            Instr::Print,
+        ];
+        let chunk = Chunk {
+            code,
+            number_literals: vec![],
+            string_literals: vec!["i".to_string()],
+            num_locals: 1,
         };
         check_it(input, chunk);
     }

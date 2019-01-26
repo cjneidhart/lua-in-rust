@@ -8,8 +8,10 @@ pub enum Instr {
     Pop,
 
     Print,
-    SetGlobal,
     GetGlobal,
+    SetGlobal,
+    GetLocal(usize),
+    SetLocal(usize),
 
     PushNil,
     PushBool(bool),

@@ -17,6 +17,10 @@ pub enum EvalError {
 
 pub fn eval_chunk(input: &Chunk, env: &mut GlobalEnv) -> Result<(), EvalError> {
     let mut stack = Vec::<LuaVal>::new();
+    let mut locals = Vec::<LuaVal>::new();
+    for _ in 0..(input.num_locals) {
+        locals.push(Nil);
+    }
     let mut ip = 0;
     let len = input.code.len();
     while ip < len {
@@ -60,6 +64,13 @@ pub fn eval_chunk(input: &Chunk, env: &mut GlobalEnv) -> Result<(), EvalError> {
                     ip += offset as usize;
                 }
                 stack.push(val);
+            }
+
+            GetLocal(i) => {
+                stack.push(locals[i].clone());
+            }
+            SetLocal(i) => {
+                locals[i] = stack.pop().unwrap();
             }
 
             Print => {
@@ -207,6 +218,7 @@ mod tests {
             code: vec![PushString(0), PushNum(0), SetGlobal],
             number_literals: vec![1.0],
             string_literals: vec!["a".to_string()],
+            num_locals: 0,
         };
         eval_chunk(&input, &mut env).unwrap();
         assert_eq!(1, env.len());
@@ -227,6 +239,7 @@ mod tests {
             number_literals: vec![],
             //string_literals: vec![],
             string_literals: vec!["key".to_string(), "a".to_string(), "b".to_string()],
+            num_locals: 0,
         };
         eval_chunk(&input, &mut env).unwrap();
         assert_eq!(1, env.len());
@@ -243,6 +256,7 @@ mod tests {
             code: vec![PushString(0), PushNum(0), PushNum(0), Equal, SetGlobal],
             number_literals: vec![2.5],
             string_literals: vec!["a".to_string()],
+            num_locals: 0,
         };
         eval_chunk(&input, &mut env).unwrap();
         assert_eq!(1, env.len());
@@ -263,6 +277,7 @@ mod tests {
             ],
             number_literals: vec![],
             string_literals: vec!["key".to_string()],
+            num_locals: 0,
         };
         eval_chunk(&input, &mut env).unwrap();
         assert_eq!(1, env.len());
@@ -283,6 +298,7 @@ mod tests {
             code,
             number_literals: vec![5.0],
             string_literals: vec!["a".to_string()],
+            num_locals: 0,
         };
         eval_chunk(&chunk, &mut env).unwrap();
         assert_eq!(1, env.len());
@@ -305,6 +321,7 @@ mod tests {
             code,
             number_literals: vec![2.0],
             string_literals: vec!["a".to_string()],
+            num_locals: 0,
         };
         eval_chunk(&chunk, &mut env).unwrap();
         assert_eq!(0, env.len());
@@ -334,7 +351,37 @@ mod tests {
             code,
             number_literals: vec![1.0, 10.0, 0.0],
             string_literals: vec!["a".to_string()],
+            num_locals: 0,
         };
         eval_chunk(&chunk, &mut HashMap::new()).unwrap();
+    }
+
+    #[test]
+    fn test9() {
+        let code = vec![
+            PushNum(0),
+            SetLocal(0),
+            GetLocal(0),
+            PushNum(1),
+            Less,
+            BranchFalse(5),
+            GetLocal(0),
+            PushNum(2),
+            Add,
+            SetLocal(0),
+            Jump(-9),
+            PushString(0),
+            GetLocal(0),
+            SetGlobal,
+        ];
+        let chunk = Chunk {
+            code,
+            number_literals: vec![1.0, 10.0, 1.0],
+            string_literals: vec!["x".to_string()],
+            num_locals: 1,
+        };
+        let mut env = HashMap::new();
+        eval_chunk(&chunk, &mut env).unwrap();
+        assert_eq!(LuaVal::Number(10.0), *env.get("x").unwrap());
     }
 }
