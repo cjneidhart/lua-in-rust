@@ -9,7 +9,7 @@ pub struct Chunk {
     pub code: Vec<Instr>,
     pub number_literals: Vec<f64>,
     pub string_literals: Vec<String>,
-    pub num_locals: usize,
+    pub num_locals: u8,
 }
 
 #[derive(Debug)]
@@ -20,6 +20,7 @@ pub enum ParseError {
     ExprEof,
     TooManyNumbers,
     TooManyStrings,
+    TooManyLocals,
     Other,
 }
 
@@ -35,7 +36,7 @@ struct Parser {
     number_literals: Vec<f64>,
     nest_level: i32,
     locals: Vec<(String, i32)>,
-    num_locals: usize,
+    num_locals: u8,
 }
 
 impl Parser {
@@ -88,6 +89,7 @@ impl Parser {
             Some(Token::Repeat) => self.parse_repeat()?,
             Some(Token::Do) => self.parse_do()?,
             Some(Token::Local) => self.parse_local()?,
+            Some(Token::For) => self.parse_for()?,
             _ => {
                 return Ok(());
             }
@@ -100,15 +102,72 @@ impl Parser {
         Ok(())
     }
 
+    /// Parse a for loop, before we know whether it's generic (`for i in t do`) or
+    /// numeric (`for i = 1,5 do`).
+    fn parse_for(&mut self) -> Result<()> {
+        self.next();
+        let name = if let Some(Token::Identifier(name)) = self.next() {
+            name
+        } else {
+            return Err(ParseError::Other);
+        };
+        self.nest_level += 1;
+        self.expect(Token::Assign)?;
+        self.parse_numeric_for(name)?;
+        self.level_down();
+
+        Ok(())
+    }
+
+    /// Parse a numeric for, starting with the first expression after the `=`.
+    fn parse_numeric_for(&mut self, name: String) -> Result<()> {
+        // The start(current), stop and step are stored in three "hidden" local slots.
+        let current_index_slot = self.locals.len();
+        self.add_local(String::new())?;
+        self.add_local(String::new())?;
+        self.add_local(String::new())?;
+
+        // The actual local is in a fourth slot, so that it can be reassigned to.
+        self.add_local(name)?;
+
+        // First, all 3 control expressions are evaluated.
+        self.parse_expr()?;
+        self.expect(Token::Comma)?;
+        self.parse_expr()?;
+        // optional step value
+        match self.next() {
+            Some(Token::Comma) => {
+                self.parse_expr()?;
+                self.expect(Token::Do)?;
+            }
+            Some(Token::Do) => {
+                let i = find_or_add(&mut self.number_literals, 1.0);
+                self.push(Instr::PushNum(i));
+            }
+            _ => {
+                return Err(ParseError::Expect(Token::Comma));
+            }
+        }
+
+        // The ForPrep command pulls three values off the stack and places them
+        // into locals to use in the loop.
+        self.push(Instr::ForPrep(current_index_slot));
+
+        // body
+        let old_len = self.output.len();
+        self.parse_statements()?;
+        self.expect(Token::End)?;
+        self.push(Instr::ForLoop(
+            current_index_slot,
+            self.output.len() - old_len + 1,
+        ));
+
+        Ok(())
+    }
+
     fn parse_local(&mut self) -> Result<()> {
         self.next();
         self.parse_each_local()
-    }
-
-    fn set_num_locals(&mut self) {
-        if self.locals.len() > self.num_locals {
-            self.num_locals = self.locals.len();
-        }
     }
 
     fn parse_each_local(&mut self) -> Result<()> {
@@ -117,8 +176,7 @@ impl Parser {
         } else {
             return Err(ParseError::Other);
         };
-        self.locals.push((name, self.nest_level));
-        self.set_num_locals();
+        self.add_local(name)?;
 
         if let Some(Token::Comma) = self.lookahead {
             self.next();
@@ -544,6 +602,20 @@ impl Parser {
         match self.next() {
             Some(ref t) if *t == tok => Ok(()),
             _ => Err(ParseError::Expect(tok)),
+        }
+    }
+
+    /// Creates a new local slot at the current nest_level.
+    /// Fail if we have exceeded the maximum number of locals.
+    fn add_local(&mut self, name: String) -> Result<()> {
+        if self.locals.len() == std::u8::MAX as usize {
+            Err(ParseError::TooManyLocals)
+        } else {
+            self.locals.push((name, self.nest_level));
+            if self.locals.len() > self.num_locals as usize {
+                self.num_locals += 1;
+            }
+            Ok(())
         }
     }
 }
@@ -1118,6 +1190,39 @@ mod tests {
             number_literals: vec![],
             string_literals: vec![],
             num_locals: 2,
+        };
+        check_it(input, chunk);
+    }
+
+    // for i = 1,5 do print i end
+    #[test]
+    fn test21() {
+        let input = vec![
+            For,
+            Identifier("i".to_string()),
+            Token::Assign,
+            LiteralNumber(1.0),
+            Comma,
+            LiteralNumber(5.0),
+            Do,
+            Token::Print,
+            Identifier("i".to_string()),
+            End,
+        ];
+        let code = vec![
+            PushNum(0),
+            PushNum(1),
+            PushNum(0),
+            ForPrep(0),
+            GetLocal(3),
+            Instr::Print,
+            ForLoop(0, 3),
+        ];
+        let chunk = Chunk {
+            code,
+            number_literals: vec![1.0, 5.0],
+            string_literals: vec![],
+            num_locals: 4,
         };
         check_it(input, chunk);
     }

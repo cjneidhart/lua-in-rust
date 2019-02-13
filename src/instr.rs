@@ -18,6 +18,10 @@ pub enum Instr {
     PushNum(usize),
     PushString(usize),
 
+    ForPrep(usize),
+    // Local to access , how far back to jump
+    ForLoop(usize, usize),
+
     // binary operators
     Add,
     Subtract,

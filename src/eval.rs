@@ -97,6 +97,38 @@ pub fn eval_chunk(input: &Chunk, env: &mut GlobalEnv) -> Result<(), EvalError> {
                 }
             }
 
+            ForPrep(local_slot) => {
+                locals[local_slot + 2] = stack.pop().unwrap();
+                locals[local_slot + 1] = stack.pop().unwrap();
+                let starting_val = stack.pop().unwrap();
+                locals[local_slot + 3] = starting_val.clone();
+                locals[local_slot] = starting_val;
+            }
+
+            ForLoop(local_slot, offset) => {
+                let mut next_val = None;
+                match (
+                    &locals[local_slot],
+                    &locals[local_slot + 1],
+                    &locals[local_slot + 2],
+                ) {
+                    (Number(current_ref), Number(stop), Number(step)) => {
+                        let current = *current_ref + step;
+                        if (current > 0.0 && current <= *stop)
+                            || (current <= 0.0 && current >= *stop)
+                        {
+                            next_val = Some(Number(current));
+                        }
+                    }
+                    _ => return Err(EvalError::Other),
+                }
+                if let Some(x) = next_val {
+                    locals[local_slot] = x.clone();
+                    locals[local_slot + 3] = x;
+                    ip -= offset;
+                }
+            }
+
             // Literals
             PushNil => stack.push(Nil),
             PushBool(b) => stack.push(Bool(b)),
