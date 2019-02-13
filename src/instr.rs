@@ -11,16 +11,16 @@ pub enum Instr {
 
     // For global variables, the usize is an index into the list of string constants.
     // This string is the variable's name.
-    GetGlobal(usize),
-    SetGlobal(usize),
+    GetGlobal(u8),
+    SetGlobal(u8),
 
-    GetLocal(usize),
-    SetLocal(usize),
+    GetLocal(u8),
+    SetLocal(u8),
 
     PushNil,
     PushBool(bool),
-    PushNum(usize),
-    PushString(usize),
+    PushNum(u8),
+    PushString(u8),
 
     ForPrep(usize),
     // Local to access , how far back to jump

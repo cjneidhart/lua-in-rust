@@ -1,5 +1,6 @@
 use std::mem::swap;
 use std::result;
+use std::u8;
 
 use crate::instr::Instr;
 use crate::token::Token;
@@ -130,7 +131,7 @@ impl Parser {
                 self.expect(Token::Do)?;
             }
             Some(Token::Do) => {
-                let i = find_or_add(&mut self.number_literals, 1.0);
+                let i = self.find_or_add_number(1.0)?;
                 self.push(Instr::PushNum(i));
             }
             _ => {
@@ -311,9 +312,9 @@ impl Parser {
         self.expect(Token::Assign)?;
         self.parse_expr()?;
         let instr = match opt_local_idx {
-            Some(i) => Instr::SetLocal(i),
+            Some(i) => Instr::SetLocal(i as u8),
             None => {
-                let i = find_or_add(&mut self.string_literals, name);
+                let i = self.find_or_add_string(name)?;
                 Instr::SetGlobal(i)
             }
         };
@@ -526,19 +527,19 @@ impl Parser {
             }
             Some(Token::Identifier(name)) => match find_last_local(&self.locals, name.as_str()) {
                 Some(i) => {
-                    self.push(Instr::GetLocal(i));
+                    self.push(Instr::GetLocal(i as u8));
                 }
                 None => {
-                    let i = find_or_add(&mut self.string_literals, name);
+                    let i = self.find_or_add_string(name)?;
                     self.push(Instr::GetGlobal(i));
                 }
             },
             Some(Token::LiteralNumber(n)) => {
-                let i = find_or_add(&mut self.number_literals, n);
+                let i = self.find_or_add_number(n)?;
                 self.push(Instr::PushNum(i));
             }
             Some(Token::LiteralString(s)) => {
-                let i = find_or_add(&mut self.string_literals, s);
+                let i = self.find_or_add_string(s)?;
                 self.push(Instr::PushString(i));
             }
             Some(Token::Nil) => self.push(Instr::PushNil),
@@ -581,7 +582,7 @@ impl Parser {
     /// Creates a new local slot at the current nest_level.
     /// Fail if we have exceeded the maximum number of locals.
     fn add_local(&mut self, name: String) -> Result<()> {
-        if self.locals.len() == std::u8::MAX as usize {
+        if self.locals.len() == u8::MAX as usize {
             Err(ParseError::TooManyLocals)
         } else {
             self.locals.push((name, self.nest_level));
@@ -590,6 +591,14 @@ impl Parser {
             }
             Ok(())
         }
+    }
+
+    fn find_or_add_string(&mut self, name: String) -> Result<u8> {
+        find_or_add(&mut self.string_literals, name).ok_or(ParseError::TooManyNumbers)
+    }
+
+    fn find_or_add_number(&mut self, num: f64) -> Result<u8> {
+        find_or_add(&mut self.number_literals, num).ok_or(ParseError::TooManyNumbers)
     }
 }
 
@@ -612,16 +621,20 @@ fn find_last_local(locals: &[(String, i32)], name: &str) -> Option<usize> {
 }
 
 /// Returns the index of a number in the literals list, adding it if it does not exist.
-fn find_or_add<T>(queue: &mut Vec<T>, x: T) -> usize
+fn find_or_add<T>(queue: &mut Vec<T>, x: T) -> Option<u8>
 where
     T: PartialEq<T>,
 {
     match queue.iter().position(|y| *y == x) {
-        Some(i) => i,
+        Some(i) => Some(i as u8),
         None => {
             let i = queue.len();
-            queue.push(x);
-            i
+            if i == u8::MAX as usize {
+                None
+            } else {
+                queue.push(x);
+                Some(i as u8)
+            }
         }
     }
 }

@@ -67,10 +67,10 @@ pub fn eval_chunk(input: &Chunk, env: &mut GlobalEnv) -> Result<(), EvalError> {
             }
 
             GetLocal(i) => {
-                stack.push(locals[i].clone());
+                stack.push(locals[i as usize].clone());
             }
             SetLocal(i) => {
-                locals[i] = stack.pop().unwrap();
+                locals[i as usize] = stack.pop().unwrap();
             }
 
             Print => {
@@ -79,12 +79,12 @@ pub fn eval_chunk(input: &Chunk, env: &mut GlobalEnv) -> Result<(), EvalError> {
             }
             SetGlobal(i) => {
                 let val = stack.pop().unwrap();
-                let name = input.string_literals[i].clone();
+                let name = input.string_literals[i as usize].clone();
                 env.insert(name, val);
             }
 
             GetGlobal(i) => {
-                let name = &input.string_literals[i];
+                let name = &input.string_literals[i as usize];
                 let val = match env.get(name) {
                     Some(val) => val.clone(),
                     None => LuaVal::Nil,
@@ -127,8 +127,8 @@ pub fn eval_chunk(input: &Chunk, env: &mut GlobalEnv) -> Result<(), EvalError> {
             // Literals
             PushNil => stack.push(Nil),
             PushBool(b) => stack.push(Bool(b)),
-            PushNum(i) => stack.push(Number(input.number_literals[i])),
-            PushString(i) => stack.push(LuaString(input.string_literals[i].clone())),
+            PushNum(i) => stack.push(Number(input.number_literals[i as usize])),
+            PushString(i) => stack.push(LuaString(input.string_literals[i as usize].clone())),
 
             // Arithmetic
             Add => eval_float_float(<f64 as std::ops::Add>::add, instr, &mut stack)?,
