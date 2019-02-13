@@ -31,6 +31,9 @@ fn run_prompt() {
         stdout.flush().unwrap();
         buf.clear();
         stdin.read_line(&mut buf).unwrap();
+        if buf.is_empty() {
+            break;
+        }
         let toks = match lexer::lex(buf.as_str()) {
             Ok(v) => v,
             Err(e) => {
