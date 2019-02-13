@@ -32,7 +32,6 @@ type Result<T> = result::Result<T, ParseError>;
 struct Parser {
     input: Vec<Token>,
     output: Vec<Instr>,
-    lookahead: Option<Token>,
     string_literals: Vec<String>,
     number_literals: Vec<f64>,
     nest_level: i32,
@@ -42,11 +41,9 @@ struct Parser {
 
 impl Parser {
     fn new(tokens: Vec<Token>) -> Self {
-        let mut input = tokens.into_iter().rev().collect::<Vec<_>>();
-        let lookahead = input.pop();
+        let input = tokens.into_iter().rev().collect();
         Parser {
             input,
-            lookahead,
             output: Vec::new(),
             string_literals: Vec::new(),
             number_literals: Vec::new(),
@@ -70,39 +67,52 @@ impl Parser {
     }
 
     fn parse_statements(&mut self) -> Result<()> {
-        loop {
-            match self.lookahead {
-                None | Some(Token::Eof) | Some(Token::End) | Some(Token::Else)
-                | Some(Token::ElseIf) | Some(Token::Until) => break,
-                _ => self.parse_stmt()?,
-            };
+        while let Some(token) = self.next() {
+            use Token::*;
+            match token {
+                Identifier(name) => self.parse_assign(name)?,
+                If => self.parse_if()?,
+                Print => self.parse_print()?,
+                While => self.parse_while()?,
+                Repeat => self.parse_repeat()?,
+                Do => self.parse_do()?,
+                Local => self.parse_local()?,
+                For => self.parse_for()?,
+                _ => {
+                    // Put the input token back if it doesn't start a statement
+                    self.input.push(token);
+                    break;
+                }
+            }
+            if let Some(Semi) = self.peek() {
+                self.next();
+            }
+        }
+
+        if let Some(Token::Return) = self.peek() {
+            self.next();
+            self.parse_return()?;
         }
 
         Ok(())
     }
 
-    fn parse_stmt(&mut self) -> Result<()> {
-        match self.next() {
-            Some(Token::Identifier(name)) => self.parse_assign(name)?,
-            Some(Token::If) => self.parse_if()?,
-            Some(Token::Print) => self.parse_print()?,
-            Some(Token::While) => self.parse_while()?,
-            Some(Token::Repeat) => self.parse_repeat()?,
-            Some(Token::Do) => self.parse_do()?,
-            Some(Token::Local) => self.parse_local()?,
-            Some(Token::For) => self.parse_for()?,
-            Some(t) => {
-                return Err(ParseError::StatementStart(t));
+    fn parse_return(&mut self) -> Result<()> {
+        if let Some(token) = self.peek() {
+            use Token::*;
+            match token {
+                Nil | False | True | LiteralNumber(_) | LiteralString(_) | DotDotDot | Function
+                | Identifier(_) | LCurly | LParen | Minus | Not | Hash => {
+                    self.parse_expr()?;
+                }
+                _ => {
+                    self.push(Instr::PushNil);
+                }
             }
-            None => {
-                return Err(ParseError::StatementEof);
-            }
-        };
-
-        if let Some(Token::Semi) = self.lookahead {
-            self.next();
+        } else {
+            self.push(Instr::PushNil);
         }
-
+        self.push(Instr::Return);
         Ok(())
     }
 
@@ -176,7 +186,7 @@ impl Parser {
         };
         self.add_local(name)?;
 
-        if let Some(Token::Comma) = self.lookahead {
+        if let Some(Token::Comma) = self.peek() {
             self.next();
             self.parse_local()
         } else {
@@ -248,7 +258,7 @@ impl Parser {
 
         // If there's another arm, add 1 to the branch instruction to skip the closing Jump.
         let body_len = self.output.len() as isize
-            + match self.lookahead {
+            + match self.peek() {
                 Some(Token::Else) | Some(Token::ElseIf) => 1,
                 // If there's no End token, handle it later.
                 _ => 0,
@@ -268,12 +278,12 @@ impl Parser {
     /// Then handle the logic of closing those.
     fn parse_if_end(&mut self) -> Result<()> {
         self.level_down();
-        if let Some(Token::ElseIf) = self.lookahead {
+        if let Some(Token::ElseIf) = self.peek() {
             let mut old_output = Vec::new();
             swap(&mut self.output, &mut old_output);
             self.parse_elseif()?;
             self.close_else_or_elseif(old_output);
-        } else if let Some(Token::Else) = self.lookahead {
+        } else if let Some(Token::Else) = self.peek() {
             let mut old_output = Vec::new();
             swap(&mut self.output, &mut old_output);
             self.parse_else()?;
@@ -300,7 +310,7 @@ impl Parser {
         swap(&mut self.output, &mut old_output);
         self.parse_statements()?;
         let body_len = self.output.len() as isize
-            + match self.lookahead {
+            + match self.peek() {
                 Some(Token::Else) | Some(Token::ElseIf) => 1,
                 // If there's no End token, handle it later.
                 _ => 0,
@@ -351,7 +361,7 @@ impl Parser {
     /// Attempt to parse an 'or' expression. Precedence 8.
     fn parse_or(&mut self) -> Result<()> {
         self.parse_and()?;
-        while let Some(Token::Or) = self.lookahead {
+        while let Some(Token::Or) = self.peek() {
             self.next();
             let mut old_output = Vec::new();
             swap(&mut self.output, &mut old_output);
@@ -369,7 +379,7 @@ impl Parser {
     /// Attempt to parse an 'and' expression. Precedence 7.
     fn parse_and(&mut self) -> Result<()> {
         self.parse_comparison()?;
-        while let Some(Token::And) = self.lookahead {
+        while let Some(Token::And) = self.peek() {
             self.next();
             let mut old_output = Vec::new();
             swap(&mut self.output, &mut old_output);
@@ -391,27 +401,27 @@ impl Parser {
     fn parse_comparison(&mut self) -> Result<()> {
         self.parse_concat()?;
         loop {
-            if let Some(Token::Less) = self.lookahead {
+            if let Some(Token::Less) = self.peek() {
                 self.next();
                 self.parse_concat()?;
                 self.push(Instr::Less);
-            } else if let Some(Token::LessEqual) = self.lookahead {
+            } else if let Some(Token::LessEqual) = self.peek() {
                 self.next();
                 self.parse_concat()?;
                 self.push(Instr::LessEqual);
-            } else if let Some(Token::Greater) = self.lookahead {
+            } else if let Some(Token::Greater) = self.peek() {
                 self.next();
                 self.parse_concat()?;
                 self.push(Instr::Greater);
-            } else if let Some(Token::GreaterEqual) = self.lookahead {
+            } else if let Some(Token::GreaterEqual) = self.peek() {
                 self.next();
                 self.parse_concat()?;
                 self.push(Instr::GreaterEqual);
-            } else if let Some(Token::Equal) = self.lookahead {
+            } else if let Some(Token::Equal) = self.peek() {
                 self.next();
                 self.parse_concat()?;
                 self.push(Instr::Equal);
-            } else if let Some(Token::NotEqual) = self.lookahead {
+            } else if let Some(Token::NotEqual) = self.peek() {
                 self.next();
                 self.parse_concat()?;
                 self.push(Instr::NotEqual);
@@ -428,7 +438,7 @@ impl Parser {
     /// `..`
     fn parse_concat(&mut self) -> Result<()> {
         self.parse_addition()?;
-        if let Some(Token::DotDot) = self.lookahead {
+        if let Some(Token::DotDot) = self.peek() {
             self.next();
             self.parse_concat()?;
             self.push(Instr::Concat);
@@ -443,11 +453,11 @@ impl Parser {
     fn parse_addition(&mut self) -> Result<()> {
         self.parse_multiplication()?;
         loop {
-            if let Some(Token::Plus) = self.lookahead {
+            if let Some(Token::Plus) = self.peek() {
                 self.next();
                 self.parse_multiplication()?;
                 self.push(Instr::Add);
-            } else if let Some(Token::Minus) = self.lookahead {
+            } else if let Some(Token::Minus) = self.peek() {
                 self.next();
                 self.parse_multiplication()?;
                 self.push(Instr::Subtract);
@@ -465,15 +475,15 @@ impl Parser {
     fn parse_multiplication(&mut self) -> Result<()> {
         self.parse_unary()?;
         loop {
-            if let Some(Token::Star) = self.lookahead {
+            if let Some(Token::Star) = self.peek() {
                 self.next();
                 self.parse_unary()?;
                 self.push(Instr::Multiply);
-            } else if let Some(Token::Slash) = self.lookahead {
+            } else if let Some(Token::Slash) = self.peek() {
                 self.next();
                 self.parse_unary()?;
                 self.push(Instr::Divide);
-            } else if let Some(Token::Mod) = self.lookahead {
+            } else if let Some(Token::Mod) = self.peek() {
                 self.next();
                 self.parse_unary()?;
                 self.push(Instr::Mod);
@@ -491,15 +501,15 @@ impl Parser {
     /// `not`, `#`, `-`
     fn parse_unary(&mut self) -> Result<()> {
         //let lookahead = &self.lookahead;
-        if let Some(Token::Not) = self.lookahead {
+        if let Some(Token::Not) = self.peek() {
             self.next();
             self.parse_unary()?;
             self.push(Instr::Not);
-        } else if let Some(Token::Hash) = self.lookahead {
+        } else if let Some(Token::Hash) = self.peek() {
             self.next();
             self.parse_unary()?;
             self.push(Instr::Length);
-        } else if let Some(Token::Minus) = self.lookahead {
+        } else if let Some(Token::Minus) = self.peek() {
             self.next();
             self.parse_unary()?;
             self.push(Instr::Negate);
@@ -515,7 +525,7 @@ impl Parser {
     /// `^`
     fn parse_pow(&mut self) -> Result<()> {
         self.parse_primary()?;
-        if let Some(Token::Caret) = self.lookahead {
+        if let Some(Token::Caret) = self.peek() {
             self.next();
             self.parse_unary()?;
             self.push(Instr::Pow);
@@ -574,9 +584,11 @@ impl Parser {
 
     /// Helper function, advances the input and returns the old lookahead.
     fn next(&mut self) -> Option<Token> {
-        let mut out = self.input.pop();
-        ::std::mem::swap(&mut self.lookahead, &mut out);
-        out
+        self.input.pop()
+    }
+
+    fn peek(&mut self) -> Option<&Token> {
+        self.input.last()
     }
 
     /// Adds an instruction to the output.
