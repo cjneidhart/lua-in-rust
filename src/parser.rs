@@ -18,6 +18,7 @@ pub enum ParseError {
     Unsupported,
     Expect(Token),
     ExprEof,
+    StatementEof,
     TooManyNumbers,
     TooManyStrings,
     TooManyLocals,
@@ -90,8 +91,11 @@ impl Parser {
             Some(Token::Do) => self.parse_do()?,
             Some(Token::Local) => self.parse_local()?,
             Some(Token::For) => self.parse_for()?,
-            _ => {
-                return Ok(());
+            Some(ref t) => {
+                return Err(ParseError::StatementStart(t.clone()));
+            }
+            None => {
+                return Err(ParseError::StatementEof);
             }
         };
 
