@@ -82,8 +82,8 @@ impl Parser {
     }
 
     fn parse_stmt(&mut self) -> Result<()> {
-        match self.lookahead {
-            Some(Token::Identifier(_)) => self.parse_assign()?,
+        match self.next() {
+            Some(Token::Identifier(name)) => self.parse_assign(name)?,
             Some(Token::If) => self.parse_if()?,
             Some(Token::Print) => self.parse_print()?,
             Some(Token::While) => self.parse_while()?,
@@ -91,8 +91,8 @@ impl Parser {
             Some(Token::Do) => self.parse_do()?,
             Some(Token::Local) => self.parse_local()?,
             Some(Token::For) => self.parse_for()?,
-            Some(ref t) => {
-                return Err(ParseError::StatementStart(t.clone()));
+            Some(t) => {
+                return Err(ParseError::StatementStart(t));
             }
             None => {
                 return Err(ParseError::StatementEof);
@@ -109,7 +109,6 @@ impl Parser {
     /// Parse a for loop, before we know whether it's generic (`for i in t do`) or
     /// numeric (`for i = 1,5 do`).
     fn parse_for(&mut self) -> Result<()> {
-        self.next();
         let name = if let Some(Token::Identifier(name)) = self.next() {
             name
         } else {
@@ -170,11 +169,6 @@ impl Parser {
     }
 
     fn parse_local(&mut self) -> Result<()> {
-        self.next();
-        self.parse_each_local()
-    }
-
-    fn parse_each_local(&mut self) -> Result<()> {
         let name = if let Some(Token::Identifier(name)) = self.next() {
             name
         } else {
@@ -184,7 +178,7 @@ impl Parser {
 
         if let Some(Token::Comma) = self.lookahead {
             self.next();
-            self.parse_each_local()
+            self.parse_local()
         } else {
             Ok(())
         }
@@ -192,7 +186,6 @@ impl Parser {
 
     fn parse_do(&mut self) -> Result<()> {
         self.nest_level += 1;
-        self.next();
         self.parse_statements()?;
         self.expect(Token::End)?;
         self.level_down();
@@ -213,7 +206,6 @@ impl Parser {
 
     fn parse_repeat(&mut self) -> Result<()> {
         self.nest_level += 1;
-        self.next();
         let body_start = self.output.len() as isize;
         self.parse_statements()?;
         self.expect(Token::Until)?;
@@ -226,7 +218,6 @@ impl Parser {
 
     fn parse_while(&mut self) -> Result<()> {
         self.nest_level += 1;
-        self.next();
         let condition_start = self.output.len() as isize;
         self.parse_expr()?;
         self.expect(Token::Do)?;
@@ -248,8 +239,6 @@ impl Parser {
 
     fn parse_if(&mut self) -> Result<()> {
         self.nest_level += 1;
-        // Consume the 'If' token.
-        self.next();
         self.parse_expr()?;
 
         self.expect(Token::Then)?;
@@ -330,12 +319,7 @@ impl Parser {
         self.expect(Token::End)
     }
 
-    fn parse_assign(&mut self) -> Result<()> {
-        let name = match self.next() {
-            Some(Token::Identifier(name)) => name,
-            _ => return Err(ParseError::Other),
-        };
-
+    fn parse_assign(&mut self, name: String) -> Result<()> {
         let opt_local_idx = find_last_local(&self.locals, name.as_str());
         if opt_local_idx.is_none() {
             let i = find_or_add(&mut self.string_literals, name);
@@ -354,7 +338,6 @@ impl Parser {
     }
 
     fn parse_print(&mut self) -> Result<()> {
-        self.expect(Token::Print)?;
         self.parse_expr()?;
         self.push(Instr::Print);
         Ok(())
