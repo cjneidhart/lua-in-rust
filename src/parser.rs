@@ -307,16 +307,15 @@ impl Parser {
 
     fn parse_assign(&mut self, name: String) -> Result<()> {
         let opt_local_idx = find_last_local(&self.locals, name.as_str());
-        if opt_local_idx.is_none() {
-            let i = find_or_add(&mut self.string_literals, name);
-            self.push(Instr::PushString(i));
-        }
 
         self.expect(Token::Assign)?;
         self.parse_expr()?;
         let instr = match opt_local_idx {
             Some(i) => Instr::SetLocal(i),
-            None => Instr::SetGlobal,
+            None => {
+                let i = find_or_add(&mut self.string_literals, name);
+                Instr::SetGlobal(i)
+            }
         };
         self.push(instr);
 
@@ -531,8 +530,7 @@ impl Parser {
                 }
                 None => {
                     let i = find_or_add(&mut self.string_literals, name);
-                    self.push(Instr::PushString(i));
-                    self.push(Instr::GetGlobal);
+                    self.push(Instr::GetGlobal(i));
                 }
             },
             Some(Token::LiteralNumber(n)) => {
@@ -775,7 +773,7 @@ mod tests {
             Eof,
         ];
         let output = Chunk {
-            code: vec![PushString(0), PushNum(0), SetGlobal],
+            code: vec![PushNum(0), SetGlobal(0)],
             number_literals: vec![5.0],
             string_literals: vec!["a".to_string()],
             num_locals: 0,
@@ -834,13 +832,7 @@ mod tests {
             LiteralNumber(5.0),
             End,
         ];
-        let code = vec![
-            PushBool(true),
-            BranchFalse(3),
-            PushString(0),
-            PushNum(0),
-            SetGlobal,
-        ];
+        let code = vec![PushBool(true), BranchFalse(2), PushNum(0), SetGlobal(0)];
         let chunk = Chunk {
             code,
             number_literals: vec![5.0],
@@ -870,15 +862,13 @@ mod tests {
         ];
         let code = vec![
             PushBool(true),
-            BranchFalse(8),
-            PushString(0),
+            BranchFalse(6),
             PushNum(0),
-            SetGlobal,
+            SetGlobal(0),
             PushBool(true),
-            BranchFalse(3),
-            PushString(1),
+            BranchFalse(2),
             PushNum(1),
-            SetGlobal,
+            SetGlobal(1),
         ];
         let chunk = Chunk {
             code,
@@ -906,14 +896,12 @@ mod tests {
         ];
         let code = vec![
             PushBool(true),
-            BranchFalse(4),
-            PushString(0),
+            BranchFalse(3),
             PushNum(0),
-            SetGlobal,
-            Jump(3),
-            PushString(0),
+            SetGlobal(0),
+            Jump(2),
             PushNum(1),
-            SetGlobal,
+            SetGlobal(0),
         ];
         let chunk = Chunk {
             code,
@@ -949,22 +937,19 @@ mod tests {
         ];
         let code = vec![
             PushBool(true),
-            BranchFalse(4),
-            PushString(0),
+            BranchFalse(3),
             PushNum(0),
-            SetGlobal,
-            Jump(11),
+            SetGlobal(0),
+            Jump(9),
             PushNum(1),
             PushNum(2),
             Instr::Equal,
-            BranchFalse(4),
-            PushString(0),
+            BranchFalse(3),
             PushNum(3),
-            SetGlobal,
-            Jump(3),
-            PushString(0),
+            SetGlobal(0),
+            Jump(2),
             PushNum(4),
-            SetGlobal,
+            SetGlobal(0),
         ];
         let chunk = Chunk {
             code,
@@ -991,18 +976,15 @@ mod tests {
             End,
         ];
         let code = vec![
-            PushString(0),
-            GetGlobal,
+            GetGlobal(0),
             PushNum(0),
             Instr::Less,
-            BranchFalse(7),
-            PushString(0),
-            PushString(0),
-            GetGlobal,
+            BranchFalse(5),
+            GetGlobal(0),
             PushNum(1),
             Add,
-            SetGlobal,
-            Jump(-12),
+            SetGlobal(0),
+            Jump(-9),
         ];
         let chunk = Chunk {
             code,
@@ -1029,12 +1011,10 @@ mod tests {
         let code = vec![
             PushNum(0),
             Instr::Print,
-            PushString(0),
-            GetGlobal,
-            PushString(1),
-            GetGlobal,
+            GetGlobal(0),
+            GetGlobal(1),
             Instr::Equal,
-            BranchFalse(-8),
+            BranchFalse(-6),
             PushNum(1),
             Instr::Print,
         ];
@@ -1122,13 +1102,7 @@ mod tests {
             Token::Print,
             Identifier("i".to_string()),
         ];
-        let code = vec![
-            GetLocal(0),
-            Instr::Print,
-            PushString(0),
-            GetGlobal,
-            Instr::Print,
-        ];
+        let code = vec![GetLocal(0), Instr::Print, GetGlobal(0), Instr::Print];
         let chunk = Chunk {
             code,
             number_literals: vec![],

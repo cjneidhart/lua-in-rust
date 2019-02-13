@@ -8,8 +8,12 @@ pub enum Instr {
     Pop,
 
     Print,
-    GetGlobal,
-    SetGlobal,
+
+    // For global variables, the usize is an index into the list of string constants.
+    // This string is the variable's name.
+    GetGlobal(usize),
+    SetGlobal(usize),
+
     GetLocal(usize),
     SetLocal(usize),
 

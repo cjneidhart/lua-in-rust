@@ -77,24 +77,19 @@ pub fn eval_chunk(input: &Chunk, env: &mut GlobalEnv) -> Result<(), EvalError> {
                 let e = stack.pop().unwrap();
                 println!("{}", e);
             }
-            SetGlobal => {
+            SetGlobal(i) => {
                 let val = stack.pop().unwrap();
-                let name = stack.pop().unwrap();
-                if let LuaVal::LuaString(s) = name {
-                    env.insert(s, val);
-                } else {
-                    return Err(EvalError::DoubleTypeError(SetGlobal, name, val));
-                }
+                let name = input.string_literals[i].clone();
+                env.insert(name, val);
             }
 
-            GetGlobal => {
-                let name = stack.pop().unwrap();
-                if let LuaVal::LuaString(s) = name {
-                    let val = env.get(&s).unwrap_or(&LuaVal::Nil);
-                    stack.push(val.clone());
-                } else {
-                    return Err(EvalError::SingleTypeError(instr, name));
-                }
+            GetGlobal(i) => {
+                let name = &input.string_literals[i];
+                let val = match env.get(name) {
+                    Some(val) => val.clone(),
+                    None => LuaVal::Nil,
+                };
+                stack.push(val);
             }
 
             ForPrep(local_slot) => {
@@ -247,7 +242,7 @@ mod tests {
     fn test1() {
         let mut env = HashMap::new();
         let input = Chunk {
-            code: vec![PushString(0), PushNum(0), SetGlobal],
+            code: vec![PushNum(0), SetGlobal(0)],
             number_literals: vec![1.0],
             string_literals: vec!["a".to_string()],
             num_locals: 0,
@@ -261,13 +256,7 @@ mod tests {
     fn test2() {
         let mut env = HashMap::new();
         let input = Chunk {
-            code: vec![
-                PushString(0),
-                PushString(1),
-                PushString(2),
-                Concat,
-                SetGlobal,
-            ],
+            code: vec![PushString(1), PushString(2), Concat, SetGlobal(0)],
             number_literals: vec![],
             //string_literals: vec![],
             string_literals: vec!["key".to_string(), "a".to_string(), "b".to_string()],
@@ -285,7 +274,7 @@ mod tests {
     fn test4() {
         let mut env = HashMap::new();
         let input = Chunk {
-            code: vec![PushString(0), PushNum(0), PushNum(0), Equal, SetGlobal],
+            code: vec![PushNum(0), PushNum(0), Equal, SetGlobal(0)],
             number_literals: vec![2.5],
             string_literals: vec!["a".to_string()],
             num_locals: 0,
@@ -300,12 +289,11 @@ mod tests {
         let mut env = HashMap::new();
         let input = Chunk {
             code: vec![
-                PushString(0),
                 PushBool(true),
                 BranchFalseKeep(2),
                 Pop,
                 PushBool(false),
-                SetGlobal,
+                SetGlobal(0),
             ],
             number_literals: vec![],
             string_literals: vec!["key".to_string()],
@@ -319,13 +307,7 @@ mod tests {
     #[test]
     fn test6() {
         let mut env = HashMap::new();
-        let code = vec![
-            PushBool(true),
-            BranchFalse(3),
-            PushString(0),
-            PushNum(0),
-            SetGlobal,
-        ];
+        let code = vec![PushBool(true), BranchFalse(3), PushNum(0), SetGlobal(0)];
         let chunk = Chunk {
             code,
             number_literals: vec![5.0],
@@ -345,9 +327,8 @@ mod tests {
             PushNum(0),
             Less,
             BranchFalse(3),
-            PushString(0),
             PushBool(true),
-            SetGlobal,
+            SetGlobal(0),
         ];
         let chunk = Chunk {
             code,
@@ -363,21 +344,17 @@ mod tests {
     fn test8() {
         //let mut env = HashMap::new();
         let code = vec![
-            PushString(0),
-            PushNum(2),
-            SetGlobal,
-            PushString(0),
-            GetGlobal,
+            PushNum(2), // a = 2
+            SetGlobal(0),
+            GetGlobal(0), // a <0
             PushNum(0),
             Less,
             BranchFalse(43243),
-            PushString(0),
-            PushString(0),
-            GetGlobal,
+            GetGlobal(0),
             PushNum(1),
             Add,
-            SetGlobal,
-            Jump(-12),
+            SetGlobal(0),
+            Jump(-9),
         ];
         let chunk = Chunk {
             code,
@@ -402,9 +379,8 @@ mod tests {
             Add,
             SetLocal(0),
             Jump(-9),
-            PushString(0),
             GetLocal(0),
-            SetGlobal,
+            SetGlobal(0),
         ];
         let chunk = Chunk {
             code,
