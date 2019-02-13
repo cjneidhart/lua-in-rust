@@ -89,30 +89,6 @@ impl Parser {
             }
         }
 
-        if let Some(Token::Return) = self.peek() {
-            self.next();
-            self.parse_return()?;
-        }
-
-        Ok(())
-    }
-
-    fn parse_return(&mut self) -> Result<()> {
-        if let Some(token) = self.peek() {
-            use Token::*;
-            match token {
-                Nil | False | True | LiteralNumber(_) | LiteralString(_) | DotDotDot | Function
-                | Identifier(_) | LCurly | LParen | Minus | Not | Hash => {
-                    self.parse_expr()?;
-                }
-                _ => {
-                    self.push(Instr::PushNil);
-                }
-            }
-        } else {
-            self.push(Instr::PushNil);
-        }
-        self.push(Instr::Return);
         Ok(())
     }
 
