@@ -307,20 +307,72 @@ impl Parser {
     }
 
     fn parse_assign(&mut self, name: String) -> Result<()> {
-        let opt_local_idx = find_last_local(&self.locals, name.as_str());
+        let mut assignments = Vec::new();
+        assignments.push(self.parse_lvalue(name)?);
+
+        while let Some(Token::Comma) = self.peek() {
+            self.next();
+            let name = if let Some(Token::Identifier(name)) = self.next() {
+                name
+            } else {
+                return Err(ParseError::Expect(Token::Identifier(String::new())));
+            };
+            assignments.push(self.parse_lvalue(name)?);
+        }
 
         self.expect(Token::Assign)?;
         self.parse_expr()?;
-        let instr = match opt_local_idx {
-            Some(i) => Instr::SetLocal(i as u8),
-            None => {
-                let i = self.find_or_add_string(name)?;
-                Instr::SetGlobal(i)
+        let mut num_rvalues = 1;
+        while let Some(Token::Comma) = self.peek() {
+            self.next();
+            self.parse_expr()?;
+            num_rvalues += 1;
+        }
+
+        // If the number of Lvalues and Rvalues is not equal, we adjust using `nil`.
+        let diff = assignments.len() as isize - num_rvalues;
+        if diff == 0 {
+            // Lvalues and Rvalues match up, no adjustment needed.
+            for instrs in assignments.iter_mut().rev() {
+                self.output.append(instrs);
             }
-        };
-        self.push(instr);
+        } else if diff > 0 {
+            // There are more Lvalues than Rvalues. Append `nil` expressions
+            // for the remaining assignments.
+            for _ in 0..diff {
+                self.push(Instr::PushNil);
+            }
+            for instrs in assignments.iter_mut().rev() {
+                self.output.append(instrs);
+            }
+        } else {
+            // There are more Lvalues than Rvalues. Append `Pop` instructions
+            // to discard the extra expressions.
+            for _ in diff..0 {
+                self.push(Instr::Pop);
+            }
+            for instrs in assignments.iter_mut().rev() {
+                self.output.append(instrs);
+            }
+        }
 
         Ok(())
+    }
+
+    /// Parse an lvalue and return the instructions needed to access it.
+    fn parse_lvalue(&mut self, name: String) -> Result<Vec<Instr>> {
+        // Returns a Vec because later, lvalues could be complicated expressions
+        // involving table indexing.
+        let mut output = Vec::new();
+        let opt_local_idx = find_last_local(&self.locals, name.as_str());
+        match opt_local_idx {
+            Some(i) => output.push(Instr::SetLocal(i as u8)),
+            None => {
+                let i = self.find_or_add_string(name)?;
+                output.push(Instr::SetGlobal(i));
+            }
+        }
+        Ok(output)
     }
 
     fn parse_print(&mut self) -> Result<()> {
@@ -1185,6 +1237,76 @@ mod tests {
             number_literals: vec![1.0, 5.0],
             string_literals: vec![],
             num_locals: 4,
+        };
+        check_it(input, chunk);
+    }
+
+    #[test]
+    fn test22() {
+        let input = vec![
+            Identifier("a".to_string()),
+            Comma,
+            Identifier("b".to_string()),
+            Token::Assign,
+            LiteralNumber(1.0),
+        ];
+        let code = vec![PushNum(0), PushNil, SetGlobal(1), SetGlobal(0)];
+        let chunk = Chunk {
+            code,
+            number_literals: vec![1.0],
+            string_literals: vec!["a".to_string(), "b".to_string()],
+            num_locals: 0,
+        };
+        check_it(input, chunk);
+    }
+
+    #[test]
+    fn test23() {
+        let input = vec![
+            Identifier("a".to_string()),
+            Comma,
+            Identifier("b".to_string()),
+            Token::Assign,
+            LiteralNumber(1.0),
+            Comma,
+            LiteralNumber(2.0),
+        ];
+        let code = vec![PushNum(0), PushNum(1), SetGlobal(1), SetGlobal(0)];
+        let chunk = Chunk {
+            code,
+            number_literals: vec![1.0, 2.0],
+            string_literals: vec!["a".to_string(), "b".to_string()],
+            num_locals: 0,
+        };
+        check_it(input, chunk);
+    }
+
+    #[test]
+    fn test24() {
+        let input = vec![
+            Identifier("a".to_string()),
+            Comma,
+            Identifier("b".to_string()),
+            Token::Assign,
+            LiteralNumber(1.0),
+            Comma,
+            LiteralNumber(2.0),
+            Comma,
+            LiteralNumber(3.0),
+        ];
+        let code = vec![
+            PushNum(0),
+            PushNum(1),
+            PushNum(2),
+            Pop,
+            SetGlobal(1),
+            SetGlobal(0),
+        ];
+        let chunk = Chunk {
+            code,
+            number_literals: vec![1.0, 2.0, 3.0],
+            string_literals: vec!["a".to_string(), "b".to_string()],
+            num_locals: 0,
         };
         check_it(input, chunk);
     }

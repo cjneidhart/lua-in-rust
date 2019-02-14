@@ -10,7 +10,7 @@ Goals
 - [x] `while` and `repeat` loops
 - [x] Local variables with proper scoping
 - [x] Numeric `for` loops
-- [ ] Multiple assignment
+- [x] Multiple assignment
 - [ ] Function calls
 - [ ] Function definition
 - [ ] Tables
