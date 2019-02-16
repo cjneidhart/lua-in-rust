@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::ops::{Div, Mul, Rem, Sub};
 
 use crate::instr::Instr;
-use crate::lua_val::{LuaVal, LuaVal::*};
+use crate::lua_val::LuaVal::{self, *};
 use crate::parser::Chunk;
 
 pub type GlobalEnv = HashMap<String, LuaVal>;
@@ -24,7 +24,7 @@ pub fn eval_chunk(input: &Chunk, env: &mut GlobalEnv) -> Result<(), EvalError> {
     let mut ip = 0;
     let len = input.code.len();
     while ip < len {
-        use self::Instr::*;
+        use Instr::*;
         let instr = input.code[ip];
         ip += 1;
         match instr {
@@ -87,7 +87,7 @@ pub fn eval_chunk(input: &Chunk, env: &mut GlobalEnv) -> Result<(), EvalError> {
                 let name = &input.string_literals[i as usize];
                 let val = match env.get(name) {
                     Some(val) => val.clone(),
-                    None => LuaVal::Nil,
+                    None => Nil,
                 };
                 stack.push(val);
             }
@@ -249,7 +249,7 @@ mod tests {
         };
         eval_chunk(&input, &mut env).unwrap();
         assert_eq!(1, env.len());
-        assert_eq!(LuaVal::Number(1.0), *env.get("a").unwrap());
+        assert_eq!(Number(1.0), *env.get("a").unwrap());
     }
 
     #[test]
@@ -264,10 +264,7 @@ mod tests {
         };
         eval_chunk(&input, &mut env).unwrap();
         assert_eq!(1, env.len());
-        assert_eq!(
-            LuaVal::LuaString("ab".to_string()),
-            *env.get("key").unwrap()
-        );
+        assert_eq!(LuaString("ab".to_string()), *env.get("key").unwrap());
     }
 
     #[test]
@@ -281,7 +278,7 @@ mod tests {
         };
         eval_chunk(&input, &mut env).unwrap();
         assert_eq!(1, env.len());
-        assert_eq!(LuaVal::Bool(true), *env.get("a").unwrap());
+        assert_eq!(Bool(true), *env.get("a").unwrap());
     }
 
     #[test]
@@ -390,6 +387,6 @@ mod tests {
         };
         let mut env = HashMap::new();
         eval_chunk(&chunk, &mut env).unwrap();
-        assert_eq!(LuaVal::Number(10.0), *env.get("x").unwrap());
+        assert_eq!(Number(10.0), *env.get("x").unwrap());
     }
 }

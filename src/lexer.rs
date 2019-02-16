@@ -1,8 +1,9 @@
 //! This module contains functions which can tokenize a string input.
 
-use crate::token::{Token, Token::*};
 use std::iter::Peekable;
 use std::str::Chars;
+
+use crate::token::Token::{self, *};
 
 #[derive(Debug)]
 pub enum LexerError {
@@ -15,11 +16,11 @@ pub enum LexerError {
 pub type Result<T> = std::result::Result<T, LexerError>;
 
 pub fn lex(input: &str) -> Result<Vec<Token>> {
-    let mut output = Vec::<Token>::new();
+    let mut output = Vec::new();
     let mut chars = input.chars().peekable();
     loop {
         let tok = tokenize(&mut chars)?;
-        if let Token::Eof = tok {
+        if let Eof = tok {
             output.push(tok);
             break;
         } else {
@@ -224,7 +225,7 @@ mod tests {
 
     #[test]
     fn test1() {
-        assert_eq!(vec![Token::LiteralNumber(50.0), Eof], lex_force("50"));
+        assert_eq!(vec![LiteralNumber(50.0), Eof], lex_force("50"));
     }
 
     #[test]

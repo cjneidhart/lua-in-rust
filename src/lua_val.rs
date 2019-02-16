@@ -1,4 +1,4 @@
-use std::fmt::{Display, Formatter};
+use std::fmt::{self, Display, Formatter};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum LuaVal {
@@ -20,8 +20,8 @@ impl LuaVal {
 }
 
 impl Display for LuaVal {
-    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        use self::LuaVal::*;
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        use LuaVal::*;
         match self {
             Nil => write!(f, "nil"),
             Bool(b) => Display::fmt(b, f),
