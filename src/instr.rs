@@ -26,6 +26,9 @@ pub enum Instr {
     // Local to access , how far back to jump
     ForLoop(usize, usize),
 
+    // Function call (number of arguments)
+    Call(u8),
+
     // binary operators
     Add,
     Subtract,

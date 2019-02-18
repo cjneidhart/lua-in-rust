@@ -16,8 +16,8 @@ pub enum EvalError {
 }
 
 pub fn eval_chunk(input: &Chunk, env: &mut GlobalEnv) -> Result<(), EvalError> {
-    let mut stack = Vec::<LuaVal>::new();
-    let mut locals = Vec::<LuaVal>::new();
+    let mut stack = Vec::new();
+    let mut locals = Vec::new();
     for _ in 0..(input.num_locals) {
         locals.push(Nil);
     }
@@ -109,9 +109,7 @@ pub fn eval_chunk(input: &Chunk, env: &mut GlobalEnv) -> Result<(), EvalError> {
                 ) {
                     (Number(current_ref), Number(stop), Number(step)) => {
                         let current = *current_ref + step;
-                        if (*step > 0.0 && current <= *stop)
-                            || (*step <= 0.0 && current >= *stop)
-                        {
+                        if (*step > 0.0 && current <= *stop) || (*step <= 0.0 && current >= *stop) {
                             next_val = Some(Number(current));
                         }
                     }

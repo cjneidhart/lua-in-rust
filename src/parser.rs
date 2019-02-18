@@ -17,12 +17,14 @@ pub struct Chunk {
 pub enum ParseError {
     StatementStart(Token),
     Unsupported,
+    Unexpected(Token),
     Expect(Token),
     ExprEof,
     StatementEof,
     TooManyNumbers,
     TooManyStrings,
     TooManyLocals,
+    Complexity,
     Other,
 }
 
@@ -71,7 +73,7 @@ impl Parser {
         while let Some(token) = self.next() {
             use Token::*;
             match token {
-                Identifier(name) => self.parse_assign(name)?,
+                Identifier(name) => self.parse_ident_stmt(name)?,
                 If => self.parse_if()?,
                 Print => self.parse_print()?,
                 While => self.parse_while()?,
@@ -89,6 +91,31 @@ impl Parser {
                 self.next();
             }
         }
+
+        Ok(())
+    }
+
+    /// Parse a statement which starts with an identifier. It could be an
+    /// assignment or a lone function call.
+    fn parse_ident_stmt(&mut self, name: String) -> Result<()> {
+        match self.peek() {
+            Some(Token::Comma) | Some(Token::Assign) => self.parse_assign(name),
+            Some(Token::LParen) => self.parse_call_stmt(name),
+            _ => Err(ParseError::Expect(Token::Assign)),
+        }
+    }
+
+    fn parse_call_stmt(&mut self, name: String) -> Result<()> {
+        self.parse_identifier(name)?;
+
+        // Consume opening parentheses.
+        self.next();
+        let num_args = if let Some(Token::RParen) = self.peek() {
+            0
+        } else {
+            self.parse_explist()?
+        };
+        self.push(Instr::Call(num_args));
 
         Ok(())
     }
@@ -321,16 +348,10 @@ impl Parser {
         }
 
         self.expect(Token::Assign)?;
-        self.parse_expr()?;
-        let mut num_rvalues = 1;
-        while let Some(Token::Comma) = self.peek() {
-            self.next();
-            self.parse_expr()?;
-            num_rvalues += 1;
-        }
+        let num_rvalues = self.parse_explist()?;
 
         // If the number of Lvalues and Rvalues is not equal, we adjust using `nil`.
-        let diff = assignments.len() as isize - num_rvalues;
+        let diff = assignments.len() as isize - num_rvalues as isize;
         if diff == 0 {
             // Lvalues and Rvalues match up, no adjustment needed.
             for instrs in assignments.iter_mut().rev() {
@@ -379,6 +400,24 @@ impl Parser {
         self.parse_expr()?;
         self.push(Instr::Print);
         Ok(())
+    }
+
+    /// Parse a comma-separated list of expressions. Trailing and leading
+    /// commas are not allowed.
+    fn parse_explist(&mut self) -> Result<u8> {
+        // An explist has to have at least one expression.
+        self.parse_expr()?;
+        let mut output = 1;
+        while let Some(Token::Comma) = self.peek() {
+            if output == u8::MAX {
+                return Err(ParseError::Complexity);
+            }
+            self.next();
+            self.parse_expr()?;
+            output += 1;
+        }
+
+        Ok(output)
     }
 
     /// Parse the input as a single expression.
@@ -577,15 +616,7 @@ impl Parser {
                 self.parse_expr()?;
                 self.expect(Token::RParen)?;
             }
-            Some(Token::Identifier(name)) => match find_last_local(&self.locals, name.as_str()) {
-                Some(i) => {
-                    self.push(Instr::GetLocal(i as u8));
-                }
-                None => {
-                    let i = self.find_or_add_string(name)?;
-                    self.push(Instr::GetGlobal(i));
-                }
-            },
+            Some(Token::Identifier(name)) => self.parse_identifier(name)?,
             Some(Token::LiteralNumber(n)) => {
                 let i = self.find_or_add_number(n)?;
                 self.push(Instr::PushNum(i));
@@ -601,8 +632,25 @@ impl Parser {
             Some(Token::DotDotDot) | Some(Token::Function) => {
                 return Err(ParseError::Unsupported);
             }
-            _ => {
-                return Err(ParseError::Other);
+            Some(t) => {
+                return Err(ParseError::Unexpected(t));
+            }
+            None => {
+                return Err(ParseError::StatementEof);
+            }
+        }
+
+        Ok(())
+    }
+
+    fn parse_identifier(&mut self, name: String) -> Result<()> {
+        match find_last_local(&self.locals, name.as_str()) {
+            Some(i) => {
+                self.push(Instr::GetLocal(i as u8));
+            }
+            None => {
+                let i = self.find_or_add_string(name)?;
+                self.push(Instr::GetGlobal(i));
             }
         }
 
@@ -1306,6 +1354,19 @@ mod tests {
             code,
             number_literals: vec![1.0, 2.0, 3.0],
             string_literals: vec!["a".to_string(), "b".to_string()],
+            num_locals: 0,
+        };
+        check_it(input, chunk);
+    }
+
+    #[test]
+    fn test25() {
+        let input = vec![Identifier("puts".to_string()), LParen, RParen];
+        let code = vec![GetGlobal(0), Call(0)];
+        let chunk = Chunk {
+            code,
+            number_literals: vec![],
+            string_literals: vec!["puts".to_string()],
             num_locals: 0,
         };
         check_it(input, chunk);
