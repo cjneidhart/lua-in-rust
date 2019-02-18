@@ -109,8 +109,8 @@ pub fn eval_chunk(input: &Chunk, env: &mut GlobalEnv) -> Result<(), EvalError> {
                 ) {
                     (Number(current_ref), Number(stop), Number(step)) => {
                         let current = *current_ref + step;
-                        if (current > 0.0 && current <= *stop)
-                            || (current <= 0.0 && current >= *stop)
+                        if (*step > 0.0 && current <= *stop)
+                            || (*step <= 0.0 && current >= *stop)
                         {
                             next_val = Some(Number(current));
                         }
