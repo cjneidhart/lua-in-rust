@@ -171,12 +171,12 @@ impl Parser {
         self.push(Instr::ForPrep(current_index_slot));
 
         // body
-        let old_len = self.output.len();
+        let old_len = self.output.len() as isize;
         self.parse_statements()?;
         self.expect(Token::End)?;
         self.push(Instr::ForLoop(
             current_index_slot,
-            self.output.len() - old_len + 1,
+            old_len - self.output.len() as isize - 1,
         ));
 
         Ok(())
@@ -1278,7 +1278,7 @@ mod tests {
             ForPrep(0),
             GetLocal(3),
             Instr::Print,
-            ForLoop(0, 3),
+            ForLoop(0, -3),
         ];
         let chunk = Chunk {
             code,

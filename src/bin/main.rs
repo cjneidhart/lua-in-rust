@@ -1,12 +1,11 @@
-use std::collections::HashMap;
 use std::env::args;
 use std::fs::read_to_string;
 use std::io;
 use std::io::Write;
 
-use lua::eval;
 use lua::lexer;
 use lua::parser;
+use lua::vm::State;
 
 fn main() {
     let mut args = args();
@@ -25,7 +24,7 @@ fn run_prompt() {
     let stdin = io::stdin();
     let mut stdout = io::stdout();
     let mut buf = String::new();
-    let mut env = HashMap::new();
+    let mut state = State::new();
     loop {
         print!("> ");
         stdout.flush().unwrap();
@@ -48,6 +47,6 @@ fn run_prompt() {
                 continue;
             }
         };
-        eval::eval_chunk(&chunk, &mut env).unwrap();
+        state.eval_chunk(chunk).unwrap();
     }
 }

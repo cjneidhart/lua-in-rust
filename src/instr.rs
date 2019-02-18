@@ -24,7 +24,7 @@ pub enum Instr {
 
     ForPrep(usize),
     // Local to access , how far back to jump
-    ForLoop(usize, usize),
+    ForLoop(usize, isize),
 
     // Function call (number of arguments)
     Call(u8),
