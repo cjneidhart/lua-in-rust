@@ -77,6 +77,7 @@ impl State {
                     let func = stack.pop().unwrap();
                     if let RustFn(f) = func {
                         f(self);
+                        stack.push(Nil);
                     } else {
                         return Err(EvalError::Other);
                     }

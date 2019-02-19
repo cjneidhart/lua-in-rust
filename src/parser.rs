@@ -20,7 +20,7 @@ pub enum ParseError {
     Unexpected(Token),
     Expect(Token),
     ExprEof,
-    StatementEof,
+    UnexpectedEof,
     TooManyNumbers,
     TooManyStrings,
     TooManyLocals,
@@ -107,15 +107,19 @@ impl Parser {
 
     fn parse_call_stmt(&mut self, name: String) -> Result<()> {
         self.parse_identifier(name)?;
-
-        // Consume opening parentheses.
+        // Consume opening paren.
         self.next();
+        self.parse_call()
+    }
+
+    fn parse_call(&mut self) -> Result<()> {
         let num_args = if let Some(Token::RParen) = self.peek() {
             0
         } else {
             self.parse_explist()?
         };
         self.push(Instr::Call(num_args));
+        self.expect(Token::RParen)?;
 
         Ok(())
     }
@@ -615,8 +619,12 @@ impl Parser {
             Some(Token::LParen) => {
                 self.parse_expr()?;
                 self.expect(Token::RParen)?;
+                self.parse_after_prefixexp()?;
             }
-            Some(Token::Identifier(name)) => self.parse_identifier(name)?,
+            Some(Token::Identifier(name)) => {
+                self.parse_identifier(name)?;
+                self.parse_after_prefixexp()?;
+            }
             Some(Token::LiteralNumber(n)) => {
                 let i = self.find_or_add_number(n)?;
                 self.push(Instr::PushNum(i));
@@ -636,10 +644,36 @@ impl Parser {
                 return Err(ParseError::Unexpected(t));
             }
             None => {
-                return Err(ParseError::StatementEof);
+                return Err(ParseError::UnexpectedEof);
             }
         }
 
+        Ok(())
+    }
+
+    /// Parse the operations which can come after a prefix expression: a
+    /// function call, a table index, or a method call.
+    ///
+    /// A prefixexp is a variable, functioncall, or parenthesized expression.
+    fn parse_after_prefixexp(&mut self) -> Result<()> {
+        match self.next() {
+            Some(Token::LParen) => self.parse_call_exp(),
+            Some(x) => {
+                self.input.push(x);
+                Ok(())
+            }
+            None => Ok(()),
+        }
+    }
+
+    fn parse_call_exp(&mut self) -> Result<()> {
+        let num_args = if let Some(Token::RParen) = self.peek() {
+            0
+        } else {
+            self.parse_explist()?
+        };
+        self.expect(Token::RParen)?;
+        self.push(Instr::Call(num_args));
         Ok(())
     }
 
@@ -657,11 +691,12 @@ impl Parser {
         Ok(())
     }
 
-    /// Helper function, advances the input and returns the old lookahead.
+    /// Return the next Token.
     fn next(&mut self) -> Option<Token> {
         self.input.pop()
     }
 
+    /// Peek at the next Token.
     fn peek(&mut self) -> Option<&Token> {
         self.input.last()
     }
