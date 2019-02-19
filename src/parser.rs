@@ -33,12 +33,15 @@ type Result<T> = result::Result<T, ParseError>;
 /// Tracks the current state, to make parsing easier.
 #[derive(Debug)]
 struct Parser {
+    /// The input token stream.
     input: Vec<Token>,
+    /// The bytecode for the resulting Chunk.
     output: Vec<Instr>,
     string_literals: Vec<String>,
     number_literals: Vec<f64>,
     nest_level: i32,
     locals: Vec<(String, i32)>,
+    /// The amount of local slots the resulting Chunk will have.
     num_locals: u8,
 }
 
@@ -82,7 +85,7 @@ impl Parser {
                 While => self.parse_while()?,
                 Repeat => self.parse_repeat()?,
                 Do => self.parse_do()?,
-                Local => self.parse_local()?,
+                Local => self.parse_locals()?,
                 For => self.parse_for()?,
                 _ => {
                     // Put the input token back if it doesn't start a statement
@@ -96,6 +99,113 @@ impl Parser {
         }
 
         Ok(())
+    }
+
+    fn parse_assign(&mut self, name: String) -> Result<()> {
+        let mut assignments = Vec::new();
+        assignments.push(self.parse_lvalue(name)?);
+
+        while let Some(Token::Comma) = self.peek() {
+            self.next();
+            let name = if let Some(Token::Identifier(name)) = self.next() {
+                name
+            } else {
+                return Err(ParseError::Expect(Token::Identifier(String::new())));
+            };
+            assignments.push(self.parse_lvalue(name)?);
+        }
+
+        self.expect(Token::Assign)?;
+        let num_rvalues = self.parse_explist()?;
+
+        // If the number of Lvalues and Rvalues is not equal, we adjust using `nil`.
+        let diff = assignments.len() as isize - num_rvalues as isize;
+        if diff > 0 {
+            // There are more Lvalues than Rvalues. Append `nil` expressions
+            // for the remaining assignments.
+            for _ in 0..diff {
+                self.push(Instr::PushNil);
+            }
+        } else {
+            // There are more Lvalues than Rvalues. Append `Pop` instructions
+            // to discard the extra expressions.
+            for _ in diff..0 {
+                self.push(Instr::Pop);
+            }
+        }
+
+        // Rvalues are evaluated left-to-right, but assignment happens right-to-left.
+        // This is only noticeable with `__newindex` metamethods.
+        for instrs in assignments.iter_mut().rev() {
+            self.output.append(instrs);
+        }
+
+        Ok(())
+    }
+
+    fn parse_locals(&mut self) -> Result<()> {
+        let start = self.locals.len() as u8;
+
+        let name1 = if let Some(Token::Identifier(name)) = self.next() {
+            name
+        } else {
+            return Err(ParseError::Other);
+        };
+        self.add_local(name1)?;
+        let mut num_names = 1;
+
+        while let Some(Token::Comma) = self.peek() {
+            self.next();
+            let name = if let Some(Token::Identifier(name)) = self.next() {
+                name
+            } else {
+                return Err(ParseError::Other);
+            };
+            self.add_local(name)?;
+            num_names += 1;
+        }
+
+        if let Some(Token::Assign) = self.peek() {
+            self.next();
+            let num_rvalues = self.parse_explist()? as isize;
+            let diff = num_names - num_rvalues;
+            if diff < 0 {
+                for _ in diff..0 {
+                    self.push(Instr::Pop);
+                }
+            } else if diff > 0 {
+                for _ in 0..diff {
+                    self.push(Instr::PushNil);
+                }
+            }
+        } else {
+            for _ in 0..num_names {
+                self.push(Instr::PushNil);
+            }
+        }
+
+        let stop = start + num_names as u8;
+        for i in (start..stop).rev() {
+            self.push(Instr::SetLocal(i))
+        }
+
+        Ok(())
+    }
+
+    /// Parse an lvalue and return the instructions needed to access it.
+    fn parse_lvalue(&mut self, name: String) -> Result<Vec<Instr>> {
+        // Returns a Vec because later, lvalues could be complicated expressions
+        // involving table indexing.
+        let mut output = Vec::new();
+        let opt_local_idx = find_last_local(&self.locals, name.as_str());
+        match opt_local_idx {
+            Some(i) => output.push(Instr::SetLocal(i as u8)),
+            None => {
+                let i = self.find_or_add_string(name)?;
+                output.push(Instr::SetGlobal(i));
+            }
+        }
+        Ok(output)
     }
 
     /// Parse a statement which starts with an identifier. It could be an
@@ -187,22 +297,6 @@ impl Parser {
         ));
 
         Ok(())
-    }
-
-    fn parse_local(&mut self) -> Result<()> {
-        let name = if let Some(Token::Identifier(name)) = self.next() {
-            name
-        } else {
-            return Err(ParseError::Other);
-        };
-        self.add_local(name)?;
-
-        if let Some(Token::Comma) = self.peek() {
-            self.next();
-            self.parse_local()
-        } else {
-            Ok(())
-        }
     }
 
     fn parse_do(&mut self) -> Result<()> {
@@ -338,69 +432,6 @@ impl Parser {
         self.next();
         self.parse_statements()?;
         self.expect(Token::End)
-    }
-
-    fn parse_assign(&mut self, name: String) -> Result<()> {
-        let mut assignments = Vec::new();
-        assignments.push(self.parse_lvalue(name)?);
-
-        while let Some(Token::Comma) = self.peek() {
-            self.next();
-            let name = if let Some(Token::Identifier(name)) = self.next() {
-                name
-            } else {
-                return Err(ParseError::Expect(Token::Identifier(String::new())));
-            };
-            assignments.push(self.parse_lvalue(name)?);
-        }
-
-        self.expect(Token::Assign)?;
-        let num_rvalues = self.parse_explist()?;
-
-        // If the number of Lvalues and Rvalues is not equal, we adjust using `nil`.
-        let diff = assignments.len() as isize - num_rvalues as isize;
-        if diff == 0 {
-            // Lvalues and Rvalues match up, no adjustment needed.
-            for instrs in assignments.iter_mut().rev() {
-                self.output.append(instrs);
-            }
-        } else if diff > 0 {
-            // There are more Lvalues than Rvalues. Append `nil` expressions
-            // for the remaining assignments.
-            for _ in 0..diff {
-                self.push(Instr::PushNil);
-            }
-            for instrs in assignments.iter_mut().rev() {
-                self.output.append(instrs);
-            }
-        } else {
-            // There are more Lvalues than Rvalues. Append `Pop` instructions
-            // to discard the extra expressions.
-            for _ in diff..0 {
-                self.push(Instr::Pop);
-            }
-            for instrs in assignments.iter_mut().rev() {
-                self.output.append(instrs);
-            }
-        }
-
-        Ok(())
-    }
-
-    /// Parse an lvalue and return the instructions needed to access it.
-    fn parse_lvalue(&mut self, name: String) -> Result<Vec<Instr>> {
-        // Returns a Vec because later, lvalues could be complicated expressions
-        // involving table indexing.
-        let mut output = Vec::new();
-        let opt_local_idx = find_last_local(&self.locals, name.as_str());
-        match opt_local_idx {
-            Some(i) => output.push(Instr::SetLocal(i as u8)),
-            None => {
-                let i = self.find_or_add_string(name)?;
-                output.push(Instr::SetGlobal(i));
-            }
-        }
-        Ok(output)
     }
 
     fn parse_print(&mut self) -> Result<()> {
@@ -1170,7 +1201,7 @@ mod tests {
             Assign,
             LiteralNumber(2.0),
         ];
-        let code = vec![PushNum(0), SetLocal(0)];
+        let code = vec![PushNil, SetLocal(0), PushNum(0), SetLocal(0)];
         let chunk = Chunk {
             code,
             number_literals: vec![2.0],
@@ -1190,7 +1221,14 @@ mod tests {
             Token::Print,
             Identifier("j".to_string()),
         ];
-        let code = vec![GetLocal(1), Instr::Print];
+        let code = vec![
+            PushNil,
+            PushNil,
+            SetLocal(1),
+            SetLocal(0),
+            GetLocal(1),
+            Instr::Print,
+        ];
         let chunk = Chunk {
             code,
             number_literals: vec![],
@@ -1214,7 +1252,16 @@ mod tests {
             Token::Print,
             Identifier("i".to_string()),
         ];
-        let code = vec![GetLocal(1), Instr::Print, GetLocal(0), Instr::Print];
+        let code = vec![
+            PushNil,
+            SetLocal(0),
+            PushNil,
+            SetLocal(1),
+            GetLocal(1),
+            Instr::Print,
+            GetLocal(0),
+            Instr::Print,
+        ];
         let chunk = Chunk {
             code,
             number_literals: vec![],
@@ -1236,7 +1283,14 @@ mod tests {
             Token::Print,
             Identifier("i".to_string()),
         ];
-        let code = vec![GetLocal(0), Instr::Print, GetGlobal(0), Instr::Print];
+        let code = vec![
+            PushNil,
+            SetLocal(0),
+            GetLocal(0),
+            Instr::Print,
+            GetGlobal(0),
+            Instr::Print,
+        ];
         let chunk = Chunk {
             code,
             number_literals: vec![],
@@ -1262,8 +1316,12 @@ mod tests {
             End,
         ];
         let code = vec![
+            PushNil,
+            SetLocal(0),
             PushBool(false),
-            BranchFalse(1),
+            BranchFalse(3),
+            PushNil,
+            SetLocal(1),
             Jump(2),
             GetLocal(0),
             Instr::Print,
