@@ -21,7 +21,6 @@ pub fn lex(input: &str) -> Result<Vec<Token>> {
     loop {
         let tok = tokenize(&mut chars)?;
         if let Eof = tok {
-            output.push(tok);
             break;
         } else {
             output.push(tok);
@@ -225,13 +224,13 @@ mod tests {
 
     #[test]
     fn test1() {
-        assert_eq!(vec![LiteralNumber(50.0), Eof], lex_force("50"));
+        assert_eq!(vec![LiteralNumber(50.0)], lex_force("50"));
     }
 
     #[test]
     fn test2() {
         assert_eq!(
-            vec![Identifier("hi".to_string()), LiteralNumber(4.0), False, Eof],
+            vec![Identifier("hi".to_string()), LiteralNumber(4.0), False],
             lex_force("hi 4false")
         );
     }
@@ -239,21 +238,21 @@ mod tests {
     #[test]
     fn test3() {
         let input = "hi5";
-        let out = vec![Identifier("hi5".to_string()), Eof];
+        let out = vec![Identifier("hi5".to_string())];
         assert_eq!(lex_force(input), out);
     }
 
     #[test]
     fn test4() {
         let input = "5 + 5";
-        let out = vec![LiteralNumber(5.0), Plus, LiteralNumber(5.0), Eof];
+        let out = vec![LiteralNumber(5.0), Plus, LiteralNumber(5.0)];
         assert_eq!(lex_force(input), out);
     }
 
     #[test]
     fn test5() {
         let input = "print 5 or 6;";
-        let out = vec![Print, LiteralNumber(5.0), Or, LiteralNumber(6.0), Semi, Eof];
+        let out = vec![Print, LiteralNumber(5.0), Or, LiteralNumber(6.0), Semi];
         assert_eq!(lex_force(input), out);
     }
 }
