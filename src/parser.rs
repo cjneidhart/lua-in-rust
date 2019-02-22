@@ -834,7 +834,7 @@ fn find_last_local(locals: &[(String, i32)], name: &str) -> Option<usize> {
 /// Returns the index of a number in the literals list, adding it if it does not exist.
 fn find_or_add<T>(queue: &mut Vec<T>, x: T) -> Option<u8>
 where
-    T: PartialEq<T>,
+    T: PartialEq,
 {
     match queue.iter().position(|y| *y == x) {
         Some(i) => Some(i as u8),

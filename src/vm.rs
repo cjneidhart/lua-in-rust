@@ -160,13 +160,13 @@ impl State {
                 }
 
                 // Order comparison
-                Instr::Less => eval_float_bool(<f64 as PartialOrd<f64>>::lt, instr, &mut stack)?,
-                Instr::Greater => eval_float_bool(<f64 as PartialOrd<f64>>::gt, instr, &mut stack)?,
+                Instr::Less => eval_float_bool(<f64 as PartialOrd>::lt, instr, &mut stack)?,
+                Instr::Greater => eval_float_bool(<f64 as PartialOrd>::gt, instr, &mut stack)?,
                 Instr::LessEqual => {
-                    eval_float_bool(<f64 as PartialOrd<f64>>::le, instr, &mut stack)?
+                    eval_float_bool(<f64 as PartialOrd>::le, instr, &mut stack)?
                 }
                 Instr::GreaterEqual => {
-                    eval_float_bool(<f64 as PartialOrd<f64>>::ge, instr, &mut stack)?
+                    eval_float_bool(<f64 as PartialOrd>::ge, instr, &mut stack)?
                 }
 
                 // String concatenation
