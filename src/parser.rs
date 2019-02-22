@@ -19,7 +19,6 @@ pub enum ParseError {
     Unsupported,
     Unexpected(Token),
     Expect(Token),
-    ExprEof,
     UnexpectedEof,
     TooManyNumbers,
     TooManyStrings,
@@ -605,7 +604,6 @@ impl Parser {
     ///
     /// `not`, `#`, `-`
     fn parse_unary(&mut self) -> Result<()> {
-        //let lookahead = &self.lookahead;
         if let Some(Token::Not) = self.peek() {
             self.next();
             self.parse_unary()?;
@@ -648,8 +646,10 @@ impl Parser {
     /// * A literal string
     /// * A function definition
     /// * One of the keywords `nil`, `false` or `true
+    /// * A table constructor
     fn parse_primary(&mut self) -> Result<()> {
         match self.next() {
+            Some(Token::LCurly) => self.parse_table()?,
             Some(Token::LParen) => {
                 self.parse_expr()?;
                 self.expect(Token::RParen)?;
@@ -683,6 +683,48 @@ impl Parser {
         }
 
         Ok(())
+    }
+
+    fn parse_table(&mut self) -> Result<()> {
+        self.push(Instr::NewTable);
+        if let Some(Token::RCurly) = self.peek() {
+            self.next();
+            Ok(())
+        } else {
+            self.parse_table_entry()?;
+            while is_fieldsep(self.peek()) {
+                self.next();
+                if let Some(Token::RCurly) = self.peek() {
+                    break;
+                } else {
+                    self.parse_table_entry()?;
+                }
+            }
+            self.expect(Token::RCurly)
+        }
+    }
+
+    /// Parse a potential table entry
+    fn parse_table_entry(&mut self) -> Result<()> {
+        match self.next() {
+            // If we're out of tokens, just return. The parser will fail later.
+            None => Ok(()),
+            Some(Token::Identifier(name)) => {
+                // TODO this might also be an expression and not an assignment.
+                let name_index = self.find_or_add_string(name)?;
+                self.expect(Token::Assign)?;
+                self.parse_expr()?;
+                self.push(Instr::SetField(name_index));
+                Ok(())
+            }
+            Some(Token::LSquare) => {
+                panic!("Computed keys aren't supported yet.");
+            }
+            // If it's none of the above, we'll just parse an expression.
+            _ => {
+                panic!("Array-style table constructors aren't supported yet.");
+            }
+        }
     }
 
     /// Parse the operations which can come after a prefix expression: a
@@ -805,6 +847,13 @@ where
                 Some(i as u8)
             }
         }
+    }
+}
+
+fn is_fieldsep(token: Option<&Token>) -> bool {
+    match token {
+        Some(Token::Comma) | Some(Token::Semi) => true,
+        _ => false,
     }
 }
 
@@ -1446,6 +1495,27 @@ mod tests {
             code,
             number_literals: vec![],
             string_literals: vec!["puts".to_string()],
+            num_locals: 0,
+        };
+        check_it(input, chunk);
+    }
+
+    #[test]
+    fn test_table_constructor1() {
+        let input = vec![
+            Token::Print,
+            LCurly,
+            Identifier("x".to_string()),
+            Token::Assign,
+            Token::LiteralNumber(5.0),
+            Token::Comma,
+            Token::RCurly,
+        ];
+        let code = vec![NewTable, PushNum(0), SetField(0), Instr::Print];
+        let chunk = Chunk {
+            code,
+            number_literals: vec![5.0],
+            string_literals: vec!["x".to_string()],
             num_locals: 0,
         };
         check_it(input, chunk);

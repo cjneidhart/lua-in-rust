@@ -17,6 +17,9 @@ pub enum Instr {
     GetLocal(u8),
     SetLocal(u8),
 
+    NewTable,
+    SetField(u8),
+
     PushNil,
     PushBool(bool),
     PushNum(u8),
