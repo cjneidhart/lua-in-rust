@@ -2,7 +2,8 @@
 //! components of the VM.
 
 use std::collections::HashMap;
-use std::ops::{Div, Mul, Rem, Sub};
+use std::ops::{Add, Div, Mul, Rem, Sub};
+use std::rc::Rc;
 use std::result;
 
 use crate::instr::Instr;
@@ -136,11 +137,12 @@ impl State {
                 Instr::PushBool(b) => stack.push(Bool(b)),
                 Instr::PushNum(i) => stack.push(Number(chunk.number_literals[i as usize])),
                 Instr::PushString(i) => {
-                    stack.push(LuaString(chunk.string_literals[i as usize].clone()))
+                    let s = chunk.string_literals[i as usize].clone();
+                    stack.push(LuaString(Rc::new(s)));
                 }
 
                 // Arithmetic
-                Instr::Add => eval_float_float(<f64 as std::ops::Add>::add, instr, &mut stack)?,
+                Instr::Add => eval_float_float(<f64 as Add>::add, instr, &mut stack)?,
                 Instr::Subtract => eval_float_float(<f64 as Sub>::sub, instr, &mut stack)?,
                 Instr::Multiply => eval_float_float(<f64 as Mul>::mul, instr, &mut stack)?,
                 Instr::Divide => eval_float_float(<f64 as Div>::div, instr, &mut stack)?,
@@ -162,12 +164,8 @@ impl State {
                 // Order comparison
                 Instr::Less => eval_float_bool(<f64 as PartialOrd>::lt, instr, &mut stack)?,
                 Instr::Greater => eval_float_bool(<f64 as PartialOrd>::gt, instr, &mut stack)?,
-                Instr::LessEqual => {
-                    eval_float_bool(<f64 as PartialOrd>::le, instr, &mut stack)?
-                }
-                Instr::GreaterEqual => {
-                    eval_float_bool(<f64 as PartialOrd>::ge, instr, &mut stack)?
-                }
+                Instr::LessEqual => eval_float_bool(<f64 as PartialOrd>::le, instr, &mut stack)?,
+                Instr::GreaterEqual => eval_float_bool(<f64 as PartialOrd>::ge, instr, &mut stack)?,
 
                 // String concatenation
                 Instr::Concat => attempt_concat(&mut stack)?,
@@ -203,7 +201,9 @@ fn attempt_concat(stack: &mut Vec<LuaVal>) -> Result<()> {
     let v2 = safe_pop(stack)?;
     let v1 = safe_pop(stack)?;
     if let (LuaString(s1), LuaString(s2)) = (&v1, &v2) {
-        stack.push(LuaString(s1.clone() + s2));
+        let mut new_string = String::clone(s1);
+        new_string.push_str(s2.as_str());
+        stack.push(LuaString(Rc::new(new_string)));
         return Ok(());
     }
 
@@ -282,7 +282,7 @@ mod tests {
         };
         state.eval_chunk(input).unwrap();
         assert_eq!(
-            LuaString("ab".to_string()),
+            LuaString(Rc::new("ab".to_string())),
             *state.globals.get("key").unwrap()
         );
     }

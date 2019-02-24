@@ -1,4 +1,5 @@
 use std::fmt::{self, Debug, Display, Formatter};
+use std::rc::Rc;
 
 use crate::vm::State;
 
@@ -7,7 +8,7 @@ pub enum LuaVal {
     Nil,
     Bool(bool),
     Number(f64),
-    LuaString(String),
+    LuaString(Rc<String>),
     RustFn(fn(&mut State) -> u8),
 }
 
