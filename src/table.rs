@@ -1,9 +1,7 @@
-use eval::LuaVal;
+use crate::lua_val::LuaVal;
 use std::collections::HashMap;
 
-#[derive(Clone, Debug, Hash)]
+#[derive(Clone, Debug)]
 pub struct LuaTable {
-    arr: Vec<LuaVal>,
     map: HashMap<LuaVal, LuaVal>,
-    // metatable: LuaVal,
 }

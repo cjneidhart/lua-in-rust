@@ -3,6 +3,7 @@ pub mod lexer;
 mod lua_std;
 mod lua_val;
 pub mod parser;
+mod table;
 mod token;
 pub mod vm;
 
