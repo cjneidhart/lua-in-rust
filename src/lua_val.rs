@@ -2,6 +2,7 @@ use std::fmt::{self, Debug, Display, Formatter};
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
+use crate::table::Table;
 use crate::vm::State;
 
 type RustFunc = fn(&mut State) -> u8;
@@ -13,6 +14,7 @@ pub enum LuaVal {
     Number(f64),
     LuaString(Rc<String>),
     RustFn(RustFunc),
+    Tbl(Rc<Table>),
 }
 use LuaVal::*;
 
@@ -32,7 +34,8 @@ impl Debug for LuaVal {
             Bool(b) => Debug::fmt(b, f),
             Number(n) => Debug::fmt(n, f),
             LuaString(s) => Debug::fmt(s, f),
-            RustFn(func) => write!(f, "RustFn@{:p}", func),
+            RustFn(func) => write!(f, "<RustFn@{:p}>", func),
+            Tbl(t) => write!(f, "<Table@{:p}>", t.as_ref()),
         }
     }
 }
@@ -44,7 +47,8 @@ impl Display for LuaVal {
             Bool(b) => Display::fmt(b, f),
             Number(n) => Display::fmt(n, f),
             LuaString(s) => Display::fmt(s, f),
-            RustFn(func) => write!(f, "RustFn@{:p}", func),
+            RustFn(func) => write!(f, "<RustFn@{:p}>", func),
+            Tbl(t) => write!(f, "<Table@{:p}>", t.as_ref()),
         }
     }
 }
@@ -70,6 +74,10 @@ impl Hash for LuaVal {
                 let f = func as *const RustFunc;
                 f.hash(hasher);
             }
+            Tbl(t) => {
+                let ptr = t.as_ref() as *const Table;
+                ptr.hash(hasher);
+            }
         }
     }
 }
@@ -84,6 +92,11 @@ impl PartialEq for LuaVal {
             (RustFn(a), RustFn(b)) => {
                 let x = a as *const RustFunc;
                 let y = b as *const RustFunc;
+                x == y
+            }
+            (Tbl(a), Tbl(b)) => {
+                let x = a.as_ref() as *const Table;
+                let y = b.as_ref() as *const Table;
                 x == y
             }
             _ => false,
