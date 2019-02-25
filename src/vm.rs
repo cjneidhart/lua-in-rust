@@ -186,6 +186,17 @@ impl State {
 
                 Instr::NewTable => stack.push(LuaVal::new_table()),
 
+                Instr::GetField(i) => {
+                    let t = stack.pop().unwrap();
+                    if let Tbl(t) = t {
+                        let key = LuaString(Rc::new(get_string(&chunk, i as usize)));
+                        let val = t.borrow().get(&key);
+                        stack.push(val.clone());
+                    } else {
+                        return Err(EvalError::SingleTypeError(instr, t));
+                    }
+                }
+
                 Instr::SetField(i) => {
                     let v = stack.pop().unwrap();
                     let t = stack.pop().unwrap();

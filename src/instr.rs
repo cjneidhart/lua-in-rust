@@ -18,6 +18,9 @@ pub enum Instr {
     SetLocal(u8),
 
     NewTable,
+
+    // The single parameter is the index of the string literal
+    GetField(u8),
     SetField(u8),
 
     PushNil,

@@ -734,11 +734,24 @@ impl Parser {
     fn parse_after_prefixexp(&mut self) -> Result<()> {
         match self.next() {
             Some(Token::LParen) => self.parse_call_exp(),
+            Some(Token::Dot) => self.parse_field(),
             Some(x) => {
                 self.input.push(x);
                 Ok(())
             }
             None => Ok(()),
+        }
+    }
+
+    /// Parse a field access, which is
+    fn parse_field(&mut self) -> Result<()> {
+        if let Some(Token::Identifier(name)) = self.next() {
+            let i = self.find_or_add_string(name)?;
+            self.push(Instr::GetField(i));
+            Ok(())
+        } else {
+            let s = "identifier".to_string();
+            Err(ParseError::Expect(Token::Identifier(s)))
         }
     }
 
