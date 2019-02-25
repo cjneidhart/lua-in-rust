@@ -137,8 +137,8 @@ impl State {
                 Instr::PushBool(b) => stack.push(Bool(b)),
                 Instr::PushNum(i) => stack.push(Number(chunk.number_literals[i as usize])),
                 Instr::PushString(i) => {
-                    let s = chunk.string_literals[i as usize].clone();
-                    stack.push(LuaString(Rc::new(s)));
+                    let val = LuaString(Rc::new(get_string(&chunk, i as usize)));
+                    stack.push(val);
                 }
 
                 // Arithmetic
@@ -172,7 +172,7 @@ impl State {
 
                 // Unary
                 Instr::Negate => {
-                    let e = safe_pop(&mut stack)?;
+                    let e = stack.pop().unwrap();
                     if let Number(n) = e {
                         stack.push(Number(-n));
                     } else {
@@ -180,8 +180,22 @@ impl State {
                     }
                 }
                 Instr::Not => {
-                    let e = safe_pop(&mut stack)?;
+                    let e = stack.pop().unwrap();
                     stack.push(Bool(!e.truthy()));
+                }
+
+                Instr::NewTable => stack.push(LuaVal::new_table()),
+
+                Instr::SetField(i) => {
+                    let v = stack.pop().unwrap();
+                    let t = stack.pop().unwrap();
+                    if let Tbl(t) = t {
+                        let key = LuaString(Rc::new(get_string(&chunk, i as usize)));
+                        t.borrow_mut().insert(key, v);
+                        stack.push(Tbl(t));
+                    } else {
+                        return Err(EvalError::SingleTypeError(instr, t));
+                    }
                 }
 
                 Instr::Print => {
@@ -197,9 +211,13 @@ impl State {
     }
 }
 
+fn get_string(chunk: &Chunk, i: usize) -> String {
+    chunk.string_literals[i].clone()
+}
+
 fn attempt_concat(stack: &mut Vec<LuaVal>) -> Result<()> {
-    let v2 = safe_pop(stack)?;
-    let v1 = safe_pop(stack)?;
+    let v2 = stack.pop().unwrap();
+    let v1 = stack.pop().unwrap();
     if let (LuaString(s1), LuaString(s2)) = (&v1, &v2) {
         let mut new_string = String::clone(s1);
         new_string.push_str(s2.as_str());
@@ -218,8 +236,8 @@ fn eval_float_bool<F>(f: F, instr: Instr, stack: &mut Vec<LuaVal>) -> Result<()>
 where
     F: FnOnce(&f64, &f64) -> bool,
 {
-    let v2 = safe_pop(stack)?;
-    let v1 = safe_pop(stack)?;
+    let v2 = stack.pop().unwrap();
+    let v1 = stack.pop().unwrap();
     if let (Number(n1), Number(n2)) = (&v1, &v2) {
         stack.push(Bool(f(n1, n2)));
         return Ok(());
@@ -236,8 +254,8 @@ fn eval_float_float<F>(f: F, instr: Instr, stack: &mut Vec<LuaVal>) -> Result<()
 where
     F: FnOnce(f64, f64) -> f64,
 {
-    let v2 = safe_pop(stack)?;
-    let v1 = safe_pop(stack)?;
+    let v2 = stack.pop().unwrap();
+    let v1 = stack.pop().unwrap();
     if let (&Number(n1), &Number(n2)) = (&v1, &v2) {
         stack.push(Number(f(n1, n2)));
         return Ok(());
@@ -245,11 +263,6 @@ where
 
     // This has to be outside the `if let` to avoid borrow issues.
     Err(EvalError::DoubleTypeError(instr, v1, v2))
-}
-
-/// Pop from the top of the stack, or return a EvalError.
-fn safe_pop(stack: &mut Vec<LuaVal>) -> Result<LuaVal> {
-    stack.pop().ok_or(EvalError::StackError)
 }
 
 #[cfg(test)]

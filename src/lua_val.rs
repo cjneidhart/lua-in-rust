@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::fmt::{self, Debug, Display, Formatter};
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
@@ -14,16 +15,32 @@ pub enum LuaVal {
     Number(f64),
     LuaString(Rc<String>),
     RustFn(RustFunc),
-    Tbl(Rc<Table>),
+    Tbl(Rc<RefCell<Table>>),
 }
 use LuaVal::*;
 
 impl LuaVal {
+    pub fn new_table() -> Self {
+        Tbl(Rc::new(RefCell::new(Table::default())))
+    }
+
     pub fn truthy(&self) -> bool {
         match self {
             Nil | Bool(false) => false,
             _ => true,
         }
+    }
+
+    pub fn type_string(&self) -> String {
+        let s = match self {
+            Nil => "nil",
+            Bool(_) => "boolean",
+            Number(_) => "number",
+            LuaString(_) => "string",
+            RustFn(_) => "function",
+            Tbl(_) => "table",
+        };
+        s.to_string()
     }
 }
 
@@ -75,7 +92,7 @@ impl Hash for LuaVal {
                 f.hash(hasher);
             }
             Tbl(t) => {
-                let ptr = t.as_ref() as *const Table;
+                let ptr = t.as_ref().as_ptr();
                 ptr.hash(hasher);
             }
         }
@@ -95,8 +112,8 @@ impl PartialEq for LuaVal {
                 x == y
             }
             (Tbl(a), Tbl(b)) => {
-                let x = a.as_ref() as *const Table;
-                let y = b.as_ref() as *const Table;
+                let x = a.as_ref().as_ptr();
+                let y = b.as_ref().as_ptr();
                 x == y
             }
             _ => false,
