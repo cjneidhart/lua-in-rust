@@ -13,7 +13,7 @@ pub enum LuaVal {
     Nil,
     Bool(bool),
     Number(f64),
-    LuaString(Rc<String>),
+    LuaString(Rc<Vec<u8>>),
     RustFn(RustFunc),
     Tbl(Rc<RefCell<Table>>),
 }
@@ -63,7 +63,7 @@ impl Display for LuaVal {
             Nil => write!(f, "nil"),
             Bool(b) => Display::fmt(b, f),
             Number(n) => Display::fmt(n, f),
-            LuaString(s) => Display::fmt(s, f),
+            LuaString(s) => write!(f, "{:#?}", s),
             RustFn(func) => write!(f, "<RustFn@{:p}>", func),
             Tbl(t) => write!(f, "<Table@{:p}>", t.as_ref()),
         }

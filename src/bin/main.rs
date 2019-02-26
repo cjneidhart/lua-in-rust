@@ -3,8 +3,6 @@ use std::fs::read_to_string;
 use std::io;
 use std::io::Write;
 
-use lua::lexer;
-use lua::parser;
 use lua::vm::State;
 
 fn main() {
@@ -34,20 +32,7 @@ fn run_prompt() {
             println!();
             break;
         }
-        let toks = match lexer::lex(buf.as_str()) {
-            Ok(v) => v,
-            Err(e) => {
-                eprintln!("lex error: {:?}", e);
-                continue;
-            }
-        };
-        let chunk = match parser::parse_chunk(toks) {
-            Ok(v) => v,
-            Err(e) => {
-                eprintln!("parse error: {:?}", e);
-                continue;
-            }
-        };
-        state.eval_chunk(chunk).unwrap();
+
+        state.loadstring(buf.as_bytes());
     }
 }

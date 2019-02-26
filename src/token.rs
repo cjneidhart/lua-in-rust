@@ -1,6 +1,13 @@
+#[derive(Debug, PartialEq)]
+pub struct Token {
+    pub typ: TokenType,
+    pub start: usize,
+    pub len: u32,
+}
+
 #[rustfmt::skip]
 #[derive(Clone, Debug, PartialEq)]
-pub enum Token {
+pub enum TokenType {
     // Keywords
     And, Break, Do, Else, ElseIf, End, False, For, Function, If, In, Local,
     Nil, Not, Or, Repeat, Return, Then, True, Until, While,
@@ -13,11 +20,16 @@ pub enum Token {
     // Other symbols
     Semi, Colon, Comma, Dot, DotDot, DotDotDot, Assign,
     // Others
-    Identifier(String),
-    LiteralNumber(f64),
-    LiteralString(String),
-    Eof,
+    Identifier,
+    LiteralNumber,
+    LiteralString,
 
     // Placeholder
     Print
+}
+
+impl Token {
+    pub fn new(typ: TokenType, start: usize, len: u32) -> Self {
+        Token { typ, start, len }
+    }
 }

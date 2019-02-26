@@ -5,7 +5,7 @@ use crate::vm::State;
 
 pub fn init(state: &mut State) {
     let globals = &mut state.globals;
-    globals.insert("puts".to_string(), LuaVal::RustFn(print));
+    globals.insert(b"puts".to_vec(), LuaVal::RustFn(print));
 }
 
 fn print(state: &mut State) -> u8 {
