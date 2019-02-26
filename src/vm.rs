@@ -14,6 +14,8 @@ use crate::parser::{self, Chunk};
 
 #[derive(Debug)]
 pub enum EvalError {
+    TableKeyNan,
+    TableKeyNil,
     StackError,
     SingleTypeError(Instr, LuaVal),
     DoubleTypeError(Instr, LuaVal, LuaVal),
@@ -209,7 +211,7 @@ impl State {
                     let t = stack.pop().unwrap();
                     if let Tbl(t) = t {
                         let key = LuaString(Rc::new(get_string(&chunk, i as usize)));
-                        t.borrow_mut().insert(key, v);
+                        t.borrow_mut().insert(key, v)?;
                         stack.push(Tbl(t));
                     } else {
                         return Err(EvalError::SingleTypeError(instr, t));
