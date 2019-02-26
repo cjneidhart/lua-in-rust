@@ -57,6 +57,12 @@ impl Debug for LuaVal {
     }
 }
 
+impl Default for LuaVal {
+    fn default() -> Self {
+        Nil
+    }
+}
+
 impl Display for LuaVal {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
