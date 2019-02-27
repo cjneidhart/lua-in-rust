@@ -1,5 +1,8 @@
 //! This module contains functions which can tokenize a string input.
 
+use std::error::Error;
+use std::fmt::{self, Display, Formatter};
+
 use crate::token::{
     Token,
     TokenType::{self, *},
@@ -7,9 +10,21 @@ use crate::token::{
 
 #[derive(Debug)]
 pub enum LexerError {
-    UnclosedString,
-    InvalidCharacter,
-    BadNumber,
+    UnclosedString(usize),
+    InvalidCharacter(u8, usize),
+    BadNumber(usize),
+}
+impl Error for LexerError{}
+
+impl Display for LexerError {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        use LexerError::*;
+        match self {
+            UnclosedString(i) => write!(f, "Unclosed string, starting at offset {}", i),
+            InvalidCharacter(c, i) => write!(f, "Invalid character '{}' at offset {}", c, i),
+            BadNumber(i) => write!(f, "Malformed number at offset {}", i),
+        }
+    }
 }
 
 pub struct TokenList<'a> {
@@ -77,7 +92,7 @@ impl<'a> Lexer<'a> {
                     } else if c.is_ascii_alphabetic() || c == b'_' {
                         self.lex_word()
                     } else {
-                        return Err(LexerError::InvalidCharacter);
+                        return Err(LexerError::InvalidCharacter(c, self.tok_start));
                     }
                 }
             };
@@ -170,7 +185,7 @@ impl<'a> Lexer<'a> {
                 b'=' => Ok(Assign),
                 b'<' => Ok(Less),
                 b'>' => Ok(Greater),
-                b'~' => Err(LexerError::InvalidCharacter),
+                b'~' => Err(LexerError::InvalidCharacter(first_char, self.tok_start)),
                 _ => panic!(),
             }
         }
@@ -186,17 +201,17 @@ impl<'a> Lexer<'a> {
                 break;
             } else if c == b'\\' {
                 if self.next().is_none() {
-                    return Err(LexerError::UnclosedString);
+                    return Err(LexerError::UnclosedString(self.tok_start));
                 }
             } else if c == b'\n' {
-                return Err(LexerError::UnclosedString);
+                return Err(LexerError::UnclosedString(self.tok_start));
             }
         }
 
         if found_matching_quote {
             Ok(LiteralString)
         } else {
-            Err(LexerError::UnclosedString)
+            Err(LexerError::UnclosedString(self.tok_start))
         }
     }
 
@@ -256,7 +271,7 @@ impl<'a> Lexer<'a> {
             self.lex_digits();
         }
         match self.peek() {
-            Some(c) if c.is_ascii_alphabetic() => Err(LexerError::BadNumber),
+            Some(c) if c.is_ascii_alphabetic() => Err(LexerError::BadNumber(self.tok_start)),
             _ => Ok(()),
         }
     }
