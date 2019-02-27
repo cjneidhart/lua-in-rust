@@ -320,7 +320,7 @@ impl<'a> Parser<'a> {
     /// Parse a numeric for, starting with the first expression after the `=`.
     fn parse_numeric_for(&mut self, name: &[u8]) -> Result<()> {
         // The start(current), stop and step are stored in three "hidden" local slots.
-        let current_index_slot = self.locals.len();
+        let current_index_slot = self.locals.len() as u8;
         self.add_local(b"")?;
         self.add_local(b"")?;
         self.add_local(b"")?;

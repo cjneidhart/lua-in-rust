@@ -110,14 +110,16 @@ impl State {
                     self.globals.insert(name, val);
                 }
 
-                Instr::ForPrep(local_slot) => {
+                Instr::ForPrep(local_slot_u8) => {
+                    let local_slot = local_slot_u8 as usize;
                     stack[local_slot + 2] = stack.pop().unwrap();
                     stack[local_slot + 1] = stack.pop().unwrap();
                     let starting_val = stack.pop().unwrap();
                     stack[local_slot + 3] = starting_val.clone();
                     stack[local_slot] = starting_val;
                 }
-                Instr::ForLoop(local_slot, offset) => {
+                Instr::ForLoop(local_slot_u8, offset) => {
+                    let local_slot = local_slot_u8 as usize;
                     let mut next_val = None;
                     match (
                         &stack[local_slot],
