@@ -51,8 +51,8 @@ impl Debug for LuaVal {
             Bool(b) => Debug::fmt(b, f),
             Number(n) => Debug::fmt(n, f),
             LuaString(s) => Debug::fmt(s, f),
-            RustFn(func) => write!(f, "<RustFn@{:p}>", func),
-            Tbl(t) => write!(f, "<Table@{:p}>", t.as_ref()),
+            RustFn(func) => write!(f, "<function: {:p}>", func),
+            Tbl(t) => write!(f, "<table: {:p}>", t.as_ref()),
         }
     }
 }
@@ -69,9 +69,7 @@ impl Display for LuaVal {
             Nil => write!(f, "nil"),
             Bool(b) => Display::fmt(b, f),
             Number(n) => Display::fmt(n, f),
-            LuaString(s) => write!(f, "{:#?}", s),
-            RustFn(func) => write!(f, "<RustFn@{:p}>", func),
-            Tbl(t) => write!(f, "<Table@{:p}>", t.as_ref()),
+            _ => write!(f, "{:#?}", self),
         }
     }
 }

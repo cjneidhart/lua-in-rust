@@ -14,7 +14,7 @@ pub enum LexerError {
     InvalidCharacter(u8, usize),
     BadNumber(usize),
 }
-impl Error for LexerError{}
+impl Error for LexerError {}
 
 impl Display for LexerError {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {

@@ -2,6 +2,7 @@
 //! components of the VM.
 
 use std::collections::HashMap;
+use std::io::{self, Write};
 use std::ops::{Add, Div, Mul, Rem, Sub};
 use std::rc::Rc;
 use std::result;
@@ -222,7 +223,17 @@ impl State {
 
                 Instr::Print => {
                     let e = stack.pop().unwrap();
-                    println!("{}", e);
+                    match e {
+                        LuaString(s) => {
+                            let mut stdout = io::stdout();
+                            let bytes = s.as_slice();
+                            // We don't care if the printing fails.
+                            let _ = stdout.write(bytes);
+                            let _ = stdout.write(b"\n");
+                            let _ = stdout.flush();
+                        }
+                        _ => println!("{}", e),
+                    }
                 }
 
                 _ => panic!("We don't support {:?} yet.", instr),
