@@ -7,11 +7,9 @@ use std::ops::{Add, Div, Mul, Rem, Sub};
 use std::rc::Rc;
 use std::result;
 
-use crate::instr::Instr;
-use crate::lexer;
-use crate::lua_std;
-use crate::lua_val::LuaVal::{self, *};
-use crate::parser::{self, Chunk};
+use crate::LuaVal::*;
+use crate::{lexer, lua_std, parser};
+use crate::{Chunk, Instr, LuaVal};
 
 #[derive(Debug)]
 pub enum EvalError {

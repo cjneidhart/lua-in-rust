@@ -1,5 +1,4 @@
-use crate::lua_val::LuaVal;
-use crate::vm::EvalError;
+use crate::{EvalError, LuaVal};
 
 use std::collections::HashMap;
 

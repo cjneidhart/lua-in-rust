@@ -3,7 +3,7 @@ use std::fs::read_to_string;
 use std::io;
 use std::io::Write;
 
-use lua::vm::State;
+use lua::State;
 
 fn main() {
     let mut args = args();

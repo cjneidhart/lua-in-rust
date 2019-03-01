@@ -3,10 +3,8 @@
 use std::error::Error;
 use std::fmt::{self, Display, Formatter};
 
-use crate::token::{
-    Token,
-    TokenType::{self, *},
-};
+use crate::Token;
+use crate::TokenType::{self, *};
 
 #[derive(Debug)]
 pub enum LexerError {

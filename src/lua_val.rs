@@ -3,8 +3,7 @@ use std::fmt::{self, Debug, Display, Formatter};
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
-use crate::table::Table;
-use crate::vm::State;
+use crate::{State, Table};
 
 type RustFunc = fn(&mut State) -> u8;
 

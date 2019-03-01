@@ -3,9 +3,7 @@ use std::result;
 use std::str;
 use std::u8;
 
-use crate::instr::Instr;
-use crate::lexer::TokenList;
-use crate::token::{Token, TokenType};
+use crate::{Instr, Token, TokenList, TokenType};
 
 #[derive(Debug, PartialEq)]
 pub struct Chunk {

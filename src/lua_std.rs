@@ -1,7 +1,6 @@
 //! Lua's Standard Library
 
-use crate::lua_val::LuaVal;
-use crate::vm::State;
+use crate::{LuaVal, State};
 
 pub fn init(state: &mut State) {
     let globals = &mut state.globals;
