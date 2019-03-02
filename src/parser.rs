@@ -79,11 +79,11 @@ impl<'a> Parser<'a> {
     }
 
     /// Peek at the next Token.
-    fn peek(&mut self) -> Option<&Token> {
+    fn peek(&self) -> Option<&Token> {
         self.input.last()
     }
 
-    fn peek_type(&mut self, expected_typ: TokenType) -> bool {
+    fn peek_type(&self, expected_typ: TokenType) -> bool {
         self.peek().map(|t| t.typ == expected_typ).unwrap_or(false)
     }
 
@@ -103,7 +103,7 @@ impl<'a> Parser<'a> {
     }
 
     /// Checks the next token's type. If it matches `typ`, it is popped off and
-    /// we return `true`. Else, we do nothing and return `false`.
+    /// returned as `Some`. Else, we return `None`.
     fn try_pop(&mut self, expected_type: TokenType) -> Option<Token> {
         match self.peek() {
             Some(t) if t.typ == expected_type => self.next(),
@@ -127,11 +127,19 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn unexpected(&mut self) -> ParseError {
+        match self.next() {
+            Some(tok) => ParseError::Unexpected(tok),
+            None => ParseError::UnexpectedEof,
+        }
+    }
+
     /// Converts a string's offsets into an &[u8].
     fn get_string_from_text(&self, start: usize, len: u32) -> Vec<u8> {
         self.text[(start + 1)..(start + len as usize - 1)].to_vec()
     }
 
+    /// Entry point for the parser.
     fn parse_chunk(mut self) -> Result<Chunk> {
         self.parse_statements()?;
         if let Some(x) = self.next() {
@@ -152,9 +160,9 @@ impl<'a> Parser<'a> {
         while let Some(token) = self.next() {
             use TokenType::*;
             match token.typ {
-                Identifier => {
-                    let s = self.text[token.start..(token.start + token.len as usize)].to_vec();
-                    self.parse_ident_stmt(&s)?
+                Identifier | LParen => {
+                    self.input.push(token);
+                    self.parse_assign_or_call()?;
                 }
                 If => self.parse_if()?,
                 Print => self.parse_print()?,
@@ -175,41 +183,140 @@ impl<'a> Parser<'a> {
         Ok(())
     }
 
-    fn parse_assign(&mut self, name: &[u8]) -> Result<()> {
-        let mut assignments = Vec::new();
-        assignments.push(self.parse_lvalue(name)?);
+    fn parse_assign_or_call(&mut self) -> Result<()> {
+        let first_set_instr = match self.parse_lvalue()? {
+            Some(i) => i,
+            None => {
+                // we parsed a function call, we're done.
+                return Ok(());
+            }
+        };
 
-        while self.has_next(TokenType::Comma) {
-            let name = self.expect_identifier()?;
-            assignments.push(self.parse_lvalue(name.as_slice())?);
+        let mut assignment_code = vec![first_set_instr];
+
+        while self.peek_type(TokenType::Comma) {
+            self.next();
+            match self.parse_lvalue()? {
+                Some(instr) => assignment_code.push(instr),
+                None => return Err(self.unexpected()),
+            }
         }
-
         self.expect(TokenType::Assign)?;
-        let num_rvalues = self.parse_explist()?;
 
-        // If the number of Lvalues and Rvalues is not equal, we adjust using `nil`.
-        let diff = assignments.len() as isize - num_rvalues as isize;
+        let num_expressions = self.parse_explist()? as isize;
+        let diff = assignment_code.len() as isize - num_expressions;
         if diff > 0 {
-            // There are more Lvalues than Rvalues. Append `nil` expressions
-            // for the remaining assignments.
             for _ in 0..diff {
                 self.push(Instr::PushNil);
             }
         } else {
-            // There are more Lvalues than Rvalues. Append `Pop` instructions
-            // to discard the extra expressions.
             for _ in diff..0 {
                 self.push(Instr::Pop);
             }
         }
 
-        // Rvalues are evaluated left-to-right, but assignment happens right-to-left.
-        // This is only noticeable with `__newindex` metamethods.
-        for instrs in assignments.iter_mut().rev() {
-            self.output.append(instrs);
-        }
+        self.output.extend(assignment_code.into_iter().rev());
 
         Ok(())
+    }
+
+    /// Parse a single lvalue. Return the instruction needed to assign the
+    /// value on top of the stack to the lvalue. Returns None if the lvalue
+    /// was a function call (which is not an lvalue).
+    fn parse_lvalue(&mut self) -> Result<Option<Instr>> {
+        if self.peek_type(TokenType::LParen) {
+            self.next();
+            self.parse_expr()?;
+            self.expect(TokenType::RParen)?;
+            match self.parse_lvalue_extension() {
+                Ok(None) => Err(self.unexpected()),
+                x => x,
+            }
+        } else {
+            let name = self.expect_identifier()?;
+            if self.peek_type(TokenType::Assign) || self.peek_type(TokenType::Comma) {
+                let instr = self.parse_set_identifier(&name)?;
+                Ok(Some(instr))
+            } else {
+                self.parse_get_identifier(&name)?;
+                self.parse_lvalue_extension()
+            }
+        }
+    }
+
+    /// Emit the bytecode to retrieve the value of the given `name`, which
+    /// may resolve to either a local or a global.
+    fn parse_get_identifier(&mut self, name: &[u8]) -> Result<()> {
+        let instr = match find_last_local(&self.locals, name) {
+            Some(i) => Instr::GetLocal(i as u8),
+            None => {
+                let i = self.find_or_add_string(name)?;
+                Instr::GetGlobal(i)
+            }
+        };
+        self.push(instr);
+        Ok(())
+    }
+
+    fn parse_set_identifier(&mut self, name: &[u8]) -> Result<Instr> {
+        match find_last_local(&self.locals, name) {
+            Some(i) => Ok(Instr::SetLocal(i as u8)),
+            None => {
+                let i = self.find_or_add_string(name)?;
+                Ok(Instr::SetGlobal(i))
+            }
+        }
+    }
+
+    fn parse_lvalue_extension(&mut self) -> Result<Option<Instr>> {
+        if let Some(token) = self.next() {
+            match token.typ {
+                TokenType::Dot => self.parse_lvalue_field(),
+                TokenType::LSquare => self.parse_lvalue_index(),
+                TokenType::LParen => self.parse_lvalue_call(),
+                TokenType::Colon => panic!("Method calls in lvalues unsupported"),
+                TokenType::LiteralString | TokenType::LCurly => {
+                    panic!("Unparenthesized function calls unsupported")
+                }
+                _ => {
+                    self.input.push(token);
+                    Ok(None)
+                }
+            }
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn parse_lvalue_field(&mut self) -> Result<Option<Instr>> {
+        let name = self.expect_identifier()?;
+        let i = self.find_or_add_string(&name)?;
+        if let Some(next_tok) = self.peek() {
+            if let TokenType::Assign | TokenType::Comma = next_tok.typ {
+                Ok(Some(Instr::SetField(i)))
+            } else {
+                self.push(Instr::GetField(i));
+                self.parse_lvalue_extension()
+            }
+        } else {
+            Err(ParseError::Expect(TokenType::Assign))
+        }
+    }
+
+    fn parse_lvalue_index(&mut self) -> Result<Option<Instr>> {
+        panic!("Accessing arbitrary indices is not yet supported.");
+    }
+
+    fn parse_lvalue_call(&mut self) -> Result<Option<Instr>> {
+        let num_args = if self.peek_type(TokenType::RParen) {
+            0
+        } else {
+            self.parse_explist()?
+        };
+        self.expect(TokenType::RParen)?;
+        self.push(Instr::Call(num_args));
+
+        self.parse_lvalue_extension()
     }
 
     fn parse_locals(&mut self) -> Result<()> {
@@ -247,58 +354,6 @@ impl<'a> Parser<'a> {
         for i in (start..stop).rev() {
             self.push(Instr::SetLocal(i))
         }
-
-        Ok(())
-    }
-
-    /// Parse an lvalue and return the instructions needed to access it.
-    fn parse_lvalue(&mut self, name: &[u8]) -> Result<Vec<Instr>> {
-        // Returns a Vec because later, lvalues could be complicated expressions
-        // involving table indexing.
-        let mut output = Vec::new();
-        let opt_local_idx = find_last_local(&self.locals, name);
-        match opt_local_idx {
-            Some(i) => output.push(Instr::SetLocal(i as u8)),
-            None => {
-                let i = self.find_or_add_string(name)?;
-                output.push(Instr::SetGlobal(i));
-            }
-        }
-        Ok(output)
-    }
-
-    /// Parse a statement which starts with an identifier. It could be an
-    /// assignment or a lone function call.
-    fn parse_ident_stmt(&mut self, name: &[u8]) -> Result<()> {
-        match self.peek() {
-            Some(t) => match t.typ {
-                TokenType::Comma | TokenType::Assign => self.parse_assign(name),
-                TokenType::LParen => self.parse_call_stmt(name),
-                _ => Err(ParseError::Expect(TokenType::Assign)),
-            },
-            _ => Err(ParseError::Expect(TokenType::Assign)),
-        }
-    }
-
-    fn parse_call_stmt(&mut self, name: &[u8]) -> Result<()> {
-        self.parse_identifier(name)?;
-        // Consume opening paren.
-        self.next();
-        self.parse_call()
-    }
-
-    fn parse_call(&mut self) -> Result<()> {
-        let num_args = if let Some(Token {
-            typ: TokenType::RParen,
-            ..
-        }) = self.peek()
-        {
-            0
-        } else {
-            self.parse_explist()?
-        };
-        self.push(Instr::Call(num_args));
-        self.expect(TokenType::RParen)?;
 
         Ok(())
     }
@@ -697,7 +752,7 @@ impl<'a> Parser<'a> {
                 }
                 TokenType::Identifier => {
                     let name = &self.text[tok.start..(tok.start + tok.len as usize)];
-                    self.parse_identifier(name)?;
+                    self.parse_get_identifier(name)?;
                     self.parse_after_prefixexp()?;
                 }
                 TokenType::LiteralNumber => {
@@ -793,20 +848,6 @@ impl<'a> Parser<'a> {
         };
         self.expect(TokenType::RParen)?;
         self.push(Instr::Call(num_args));
-        Ok(())
-    }
-
-    fn parse_identifier(&mut self, name: &[u8]) -> Result<()> {
-        match find_last_local(&self.locals, name) {
-            Some(i) => {
-                self.push(Instr::GetLocal(i as u8));
-            }
-            None => {
-                let i = self.find_or_add_string(name)?;
-                self.push(Instr::GetGlobal(i));
-            }
-        }
-
         Ok(())
     }
 
@@ -1489,7 +1530,7 @@ mod tests {
     }
 
     #[test]
-    fn test_table_constructor1() {
+    fn test26() {
         let text = b"print {x = 5,}";
         let tokens = vec![
             TOK(TokenType::Print, 0, 5),
