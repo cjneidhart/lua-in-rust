@@ -832,12 +832,12 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// Parse a field access, which is
+    /// Parse a field access
     fn parse_field(&mut self) -> Result<()> {
         let name = self.expect_identifier()?;
         let i = self.find_or_add_string(name.as_slice())?;
         self.push(Instr::GetField(i));
-        Ok(())
+        self.parse_after_prefixexp()
     }
 
     fn parse_call_exp(&mut self) -> Result<()> {
@@ -1550,5 +1550,19 @@ mod tests {
             num_locals: 0,
         };
         check_it(tl, chunk);
+    }
+
+    #[test]
+    fn test27() {
+        let text = b"print t.x.y";
+        let input = lexer::lex(text).unwrap();
+        let code = vec![GetGlobal(0), GetField(1), GetField(2), Instr::Print];
+        let chunk = Chunk {
+            code,
+            number_literals: vec![],
+            string_literals: vec![b"t".to_vec(), b"x".to_vec(), b"y".to_vec()],
+            num_locals: 0,
+        };
+        check_it(input, chunk);
     }
 }
