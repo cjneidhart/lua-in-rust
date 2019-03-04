@@ -22,6 +22,7 @@ pub enum TokenType {
     // Others
     Identifier,
     LiteralNumber,
+    LiteralHexNumber,
     LiteralString,
 
     // Placeholder

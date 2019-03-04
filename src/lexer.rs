@@ -136,10 +136,10 @@ impl<'a> Lexer<'a> {
         Token::new(typ, self.tok_start, (self.pos - self.tok_start) as u32)
     }
 
-    /// The lexer just read a '.'. Determine whether it was a:
-    /// - Dot: table access
-    /// - DotDot: String concatenation
-    /// - DotDotDot: Variadic arguments
+    /// The lexer just read a `.`. Determine whether it was a:
+    /// - `Dot`: table access
+    /// - `DotDot`: String concatenation
+    /// - `DotDotDot`: Variadic arguments
     /// - Number: if it's the form `.4`, for example
     ///
     /// This will return `Err` if the number is invalid.
@@ -218,24 +218,38 @@ impl<'a> Lexer<'a> {
     fn lex_full_number(&mut self, first_digit: u8) -> Result<TokenType> {
         // Check for hex values
         if first_digit == b'0' && self.try_next(b'x') {
-            // TODO
-            panic!("Hex numbers aren't supported yet.");
-        }
-
-        // Read in the rest of the base
-        self.lex_digits();
-
-        // Handle the fraction and exponent components.
-        if self.try_next(b'.') {
+            // Has to be at least one digit
+            match self.next() {
+                Some(c) if c.is_ascii_hexdigit() => (),
+                _ => return Err(LexerError::BadNumber(self.tok_start)),
+            }
+            while let Some(c) = self.peek() {
+                if c.is_ascii_hexdigit() {
+                    self.next();
+                } else {
+                    break;
+                }
+            }
             match self.peek() {
-                Some(c) if c.is_ascii_digit() => self.lex_number_after_decimal()?,
-                _ => self.lex_exponent()?,
+                Some(c) if c.is_ascii_alphabetic() => Err(LexerError::BadNumber(self.tok_start)),
+                _ => Ok(LiteralHexNumber),
             }
         } else {
-            self.lex_exponent()?
-        }
+            // Read in the rest of the base
+            self.lex_digits();
 
-        Ok(LiteralNumber)
+            // Handle the fraction and exponent components.
+            if self.try_next(b'.') {
+                match self.peek() {
+                    Some(c) if c.is_ascii_digit() => self.lex_number_after_decimal()?,
+                    _ => self.lex_exponent()?,
+                }
+            } else {
+                self.lex_exponent()?
+            }
+
+            Ok(LiteralNumber)
+        }
     }
 
     /// Read in a literal number which had no digits before the decimal point.

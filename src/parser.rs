@@ -762,6 +762,13 @@ impl<'a> Parser<'a> {
                     let i = self.find_or_add_number(n)?;
                     self.push(Instr::PushNum(i));
                 }
+                TokenType::LiteralHexNumber => {
+                    let bytes = &self.text[(tok.start + 2)..(tok.start + tok.len as usize)];
+                    let s = str::from_utf8(bytes).unwrap();
+                    let n = u128::from_str_radix(s, 16).unwrap() as f64;
+                    let i = self.find_or_add_number(n)?;
+                    self.push(Instr::PushNum(i));
+                }
                 TokenType::LiteralString => {
                     let bytes = self.get_string_from_text(tok.start, tok.len);
                     let i = self.find_or_add_string(bytes.as_slice())?;
