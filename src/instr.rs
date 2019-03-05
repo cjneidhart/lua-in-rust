@@ -60,6 +60,12 @@ pub enum Instr {
     /// the given index.
     SetField(u8),
 
+    /// Get a value from a table.
+    GetTable,
+
+    /// Assign to a table.
+    SetTable,
+
     /// Push a `nil` value onto the stack.
     PushNil,
 

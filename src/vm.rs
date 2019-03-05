@@ -213,7 +213,28 @@ impl State {
                     if let Tbl(t) = t {
                         let key = LuaString(Rc::new(get_string(&chunk, i as usize)));
                         t.borrow_mut().insert(key, v)?;
-                        stack.push(Tbl(t));
+                    } else {
+                        return Err(EvalError::SingleTypeError(instr, t));
+                    }
+                }
+
+                Instr::GetTable => {
+                    let key = stack.pop().unwrap();
+                    let t = stack.pop().unwrap();
+                    if let Tbl(table) = t {
+                        let val = table.borrow().get(&key);
+                        stack.push(val.clone());
+                    } else {
+                        return Err(EvalError::SingleTypeError(instr, t));
+                    }
+                }
+
+                Instr::SetTable => {
+                    let val = stack.pop().unwrap();
+                    let key = stack.pop().unwrap();
+                    let t = stack.pop().unwrap();
+                    if let Tbl(t) = t {
+                        t.borrow_mut().insert(key, val)?;
                     } else {
                         return Err(EvalError::SingleTypeError(instr, t));
                     }

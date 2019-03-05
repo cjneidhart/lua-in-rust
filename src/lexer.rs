@@ -78,10 +78,10 @@ impl<'a> Lexer<'a> {
                 b'\'' => self.lex_string(true)?,
                 b'\"' => self.lex_string(false)?,
                 b'[' => {
-                    if let Some(b'=') = self.peek() {
-                        LSquare
-                    } else {
+                    if let Some(b'=') | Some(b'[') = self.peek() {
                         panic!("Long strings are not supported yet.");
+                    } else {
+                        LSquare
                     }
                 }
                 _ => {

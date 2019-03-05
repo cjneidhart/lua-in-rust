@@ -83,6 +83,8 @@ impl<'a> Parser<'a> {
         self.input.last()
     }
 
+    /// Return whether the next token is of the expected type, without popping
+    /// it.
     fn peek_type(&self, expected_typ: TokenType) -> bool {
         self.peek().map(|t| t.typ == expected_typ).unwrap_or(false)
     }
@@ -324,7 +326,18 @@ impl<'a> Parser<'a> {
 
     /// Parse an indexing operation (`[]`) for a place expression.
     fn parse_place_index(&mut self) -> Result<Option<Instr>> {
-        panic!("Accessing arbitrary indices is not yet supported.");
+        self.parse_expr()?;
+        self.expect(TokenType::RSquare)?;
+        if let Some(next_tok) = self.peek() {
+            if let TokenType::Assign | TokenType::Comma = next_tok.typ {
+                Ok(Some(Instr::SetTable))
+            } else {
+                self.push(Instr::GetTable);
+                self.parse_place_extension()
+            }
+        } else {
+            Err(ParseError::Expect(TokenType::Assign))
+        }
     }
 
     /// Parse a function call as part of a place expresion.
@@ -856,6 +869,11 @@ impl<'a> Parser<'a> {
             self.parse_call_exp()
         } else if self.has_next(TokenType::Dot) {
             self.parse_field()
+        } else if self.has_next(TokenType::LSquare) {
+            self.parse_expr()?;
+            self.expect(TokenType::RSquare)?;
+            self.push(Instr::GetTable);
+            self.parse_after_prefixexp()
         } else {
             Ok(())
         }
