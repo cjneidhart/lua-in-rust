@@ -13,7 +13,7 @@ pub struct Chunk {
     pub num_locals: u8,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum ParseError {
     Unsupported,
     Unexpected(Token),
@@ -234,12 +234,25 @@ impl<'a> Parser<'a> {
             }
         } else {
             let name = self.expect_identifier()?;
-            if self.peek_type(TokenType::Assign) || self.peek_type(TokenType::Comma) {
-                let instr = self.parse_set_identifier(&name)?;
-                Ok(Some(instr))
+            if let Some(tok) = self.peek() {
+                match tok.typ {
+                    TokenType::Assign | TokenType::Comma => {
+                        let instr = self.parse_set_identifier(&name)?;
+                        Ok(Some(instr))
+                    }
+                    TokenType::Dot
+                    | TokenType::LSquare
+                    | TokenType::LCurly
+                    | TokenType::LParen
+                    | TokenType::Colon
+                    | TokenType::LiteralString => {
+                        self.parse_get_identifier(&name)?;
+                        self.parse_place_extension()
+                    }
+                    _ => Err(ParseError::Expect(TokenType::Assign)),
+                }
             } else {
-                self.parse_get_identifier(&name)?;
-                self.parse_place_extension()
+                Err(ParseError::Expect(TokenType::Assign))
             }
         }
     }
@@ -1580,5 +1593,15 @@ mod tests {
             num_locals: 0,
         };
         check_it(input, chunk);
+    }
+
+    #[test]
+    fn test28() {
+        let text = b"x";
+        let input = lexer::lex(text).unwrap();
+        assert_eq!(
+            parse_chunk(input),
+            Err(ParseError::Expect(TokenType::Assign))
+        );
     }
 }
