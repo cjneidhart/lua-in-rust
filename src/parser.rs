@@ -184,7 +184,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_assign_or_call(&mut self) -> Result<()> {
-        let first_set_instr = match self.parse_lvalue()? {
+        let first_set_instr = match self.parse_place()? {
             Some(i) => i,
             None => {
                 // we parsed a function call, we're done.
@@ -196,7 +196,7 @@ impl<'a> Parser<'a> {
 
         while self.peek_type(TokenType::Comma) {
             self.next();
-            match self.parse_lvalue()? {
+            match self.parse_place()? {
                 Some(instr) => assignment_code.push(instr),
                 None => return Err(self.unexpected()),
             }
@@ -220,15 +220,15 @@ impl<'a> Parser<'a> {
         Ok(())
     }
 
-    /// Parse a single lvalue. Return the instruction needed to assign the
-    /// value on top of the stack to the lvalue. Returns None if the lvalue
-    /// was a function call (which is not an lvalue).
-    fn parse_lvalue(&mut self) -> Result<Option<Instr>> {
+    /// Parse a single place expression or function call. If it's a call,
+    /// return `None`. If it's a place expression, returns the instruction
+    /// to perform the assignment.
+    fn parse_place(&mut self) -> Result<Option<Instr>> {
         if self.peek_type(TokenType::LParen) {
             self.next();
             self.parse_expr()?;
             self.expect(TokenType::RParen)?;
-            match self.parse_lvalue_extension() {
+            match self.parse_place_extension() {
                 Ok(None) => Err(self.unexpected()),
                 x => x,
             }
@@ -239,7 +239,7 @@ impl<'a> Parser<'a> {
                 Ok(Some(instr))
             } else {
                 self.parse_get_identifier(&name)?;
-                self.parse_lvalue_extension()
+                self.parse_place_extension()
             }
         }
     }
@@ -258,6 +258,9 @@ impl<'a> Parser<'a> {
         Ok(())
     }
 
+    /// Return the instruction to assign to the given identifier.
+    ///
+    /// Does not alter `self.output`.
     fn parse_set_identifier(&mut self, name: &[u8]) -> Result<Instr> {
         match find_last_local(&self.locals, name) {
             Some(i) => Ok(Instr::SetLocal(i as u8)),
@@ -268,13 +271,15 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_lvalue_extension(&mut self) -> Result<Option<Instr>> {
+    /// Any place expression can be followed by an indexing operation or a
+    /// function/method call.
+    fn parse_place_extension(&mut self) -> Result<Option<Instr>> {
         if let Some(token) = self.next() {
             match token.typ {
-                TokenType::Dot => self.parse_lvalue_field(),
-                TokenType::LSquare => self.parse_lvalue_index(),
-                TokenType::LParen => self.parse_lvalue_call(),
-                TokenType::Colon => panic!("Method calls in lvalues unsupported"),
+                TokenType::Dot => self.parse_place_field(),
+                TokenType::LSquare => self.parse_place_index(),
+                TokenType::LParen => self.parse_place_call(),
+                TokenType::Colon => panic!("Method calls unsupported"),
                 TokenType::LiteralString | TokenType::LCurly => {
                     panic!("Unparenthesized function calls unsupported")
                 }
@@ -288,7 +293,8 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_lvalue_field(&mut self) -> Result<Option<Instr>> {
+    /// Parse a field access for a place expression.
+    fn parse_place_field(&mut self) -> Result<Option<Instr>> {
         let name = self.expect_identifier()?;
         let i = self.find_or_add_string(&name)?;
         if let Some(next_tok) = self.peek() {
@@ -296,18 +302,20 @@ impl<'a> Parser<'a> {
                 Ok(Some(Instr::SetField(i)))
             } else {
                 self.push(Instr::GetField(i));
-                self.parse_lvalue_extension()
+                self.parse_place_extension()
             }
         } else {
             Err(ParseError::Expect(TokenType::Assign))
         }
     }
 
-    fn parse_lvalue_index(&mut self) -> Result<Option<Instr>> {
+    /// Parse an indexing operation (`[]`) for a place expression.
+    fn parse_place_index(&mut self) -> Result<Option<Instr>> {
         panic!("Accessing arbitrary indices is not yet supported.");
     }
 
-    fn parse_lvalue_call(&mut self) -> Result<Option<Instr>> {
+    /// Parse a function call as part of a place expresion.
+    fn parse_place_call(&mut self) -> Result<Option<Instr>> {
         let num_args = if self.peek_type(TokenType::RParen) {
             0
         } else {
@@ -316,9 +324,10 @@ impl<'a> Parser<'a> {
         self.expect(TokenType::RParen)?;
         self.push(Instr::Call(num_args));
 
-        self.parse_lvalue_extension()
+        self.parse_place_extension()
     }
 
+    /// Parse a `local` declaration.
     fn parse_locals(&mut self) -> Result<()> {
         let start = self.locals.len() as u8;
 
