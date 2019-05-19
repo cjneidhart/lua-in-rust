@@ -1,3 +1,4 @@
+mod error;
 mod instr;
 mod lexer;
 mod lua_std;
@@ -7,13 +8,13 @@ mod table;
 mod token;
 mod vm;
 
+use error::{Error, Result};
 use instr::Instr;
 use lexer::TokenList;
 use lua_val::LuaVal;
 use parser::Chunk;
 use table::Table;
 use token::{Token, TokenType};
-use vm::EvalError;
 
 pub use vm::State;
 

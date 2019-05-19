@@ -1,9 +1,8 @@
 use std::mem::swap;
-use std::result;
 use std::str;
 use std::u8;
 
-use crate::{Instr, Token, TokenList, TokenType};
+use crate::{Error, Instr, Result, Token, TokenList, TokenType};
 
 #[derive(Debug, PartialEq)]
 pub struct Chunk {
@@ -13,25 +12,11 @@ pub struct Chunk {
     pub num_locals: u8,
 }
 
-#[derive(Debug, PartialEq)]
-pub enum ParseError {
-    Unsupported,
-    Unexpected(Token),
-    Expect(TokenType),
-    UnexpectedEof,
-    TooManyNumbers,
-    TooManyStrings,
-    TooManyLocals,
-    Complexity,
-}
-
 pub fn parse_chunk(token_list: TokenList) -> Result<Chunk> {
     let p = Parser::new(token_list);
 
     p.parse_chunk()
 }
-
-type Result<T> = result::Result<T, ParseError>;
 
 /// Tracks the current state, to make parsing easier.
 #[derive(Debug, Default)]
@@ -97,10 +82,10 @@ impl<'a> Parser<'a> {
                 if t.typ == expected {
                     Ok(())
                 } else {
-                    Err(ParseError::Expect(expected))
+                    Err(Error::Expect(expected))
                 }
             }
-            _ => Err(ParseError::Expect(expected)),
+            _ => Err(Error::Expect(expected)),
         }
     }
 
@@ -125,14 +110,14 @@ impl<'a> Parser<'a> {
                 let name = self.text[start..(start + len as usize)].to_vec();
                 Ok(name)
             }
-            None => Err(ParseError::Expect(TokenType::Identifier)),
+            None => Err(Error::Expect(TokenType::Identifier)),
         }
     }
 
-    fn unexpected(&mut self) -> ParseError {
+    fn unexpected(&mut self) -> Error {
         match self.next() {
-            Some(tok) => ParseError::Unexpected(tok),
-            None => ParseError::UnexpectedEof,
+            Some(tok) => Error::Unexpected(tok),
+            None => Error::UnexpectedEof,
         }
     }
 
@@ -145,7 +130,7 @@ impl<'a> Parser<'a> {
     fn parse_chunk(mut self) -> Result<Chunk> {
         self.parse_statements()?;
         if let Some(x) = self.next() {
-            Err(ParseError::Unexpected(x))
+            Err(Error::Unexpected(x))
         } else {
             let c = Chunk {
                 code: self.output,
@@ -251,10 +236,10 @@ impl<'a> Parser<'a> {
                         self.parse_get_identifier(&name)?;
                         self.parse_place_extension()
                     }
-                    _ => Err(ParseError::Expect(TokenType::Assign)),
+                    _ => Err(Error::Expect(TokenType::Assign)),
                 }
             } else {
-                Err(ParseError::Expect(TokenType::Assign))
+                Err(Error::Expect(TokenType::Assign))
             }
         }
     }
@@ -320,7 +305,7 @@ impl<'a> Parser<'a> {
                 self.parse_place_extension()
             }
         } else {
-            Err(ParseError::Expect(TokenType::Assign))
+            Err(Error::Expect(TokenType::Assign))
         }
     }
 
@@ -336,7 +321,7 @@ impl<'a> Parser<'a> {
                 self.parse_place_extension()
             }
         } else {
-            Err(ParseError::Expect(TokenType::Assign))
+            Err(Error::Expect(TokenType::Assign))
         }
     }
 
@@ -429,7 +414,7 @@ impl<'a> Parser<'a> {
             let i = self.find_or_add_number(1.0)?;
             self.push(Instr::PushNum(i));
         } else {
-            return Err(ParseError::Expect(TokenType::Comma));
+            return Err(Error::Expect(TokenType::Comma));
         }
 
         // The ForPrep command pulls three values off the stack and places them
@@ -600,7 +585,7 @@ impl<'a> Parser<'a> {
         let mut output = 1;
         while self.has_next(TokenType::Comma) {
             if output == u8::MAX {
-                return Err(ParseError::Complexity);
+                return Err(Error::Complexity);
             }
             self.parse_expr()?;
             output += 1;
@@ -813,15 +798,15 @@ impl<'a> Parser<'a> {
                 TokenType::False => self.push(Instr::PushBool(false)),
                 TokenType::True => self.push(Instr::PushBool(true)),
                 TokenType::DotDotDot | TokenType::Function => {
-                    return Err(ParseError::Unsupported);
+                    return Err(Error::Unsupported);
                 }
                 _ => {
-                    Err::<(), ParseError>(ParseError::Unexpected(tok))?;
+                    Err::<(), Error>(Error::Unexpected(tok))?;
                 }
             }
             Ok(())
         } else {
-            Err(ParseError::UnexpectedEof)
+            Err(Error::UnexpectedEof)
         }
     }
 
@@ -902,7 +887,7 @@ impl<'a> Parser<'a> {
     /// Fail if we have exceeded the maximum number of locals.
     fn add_local(&mut self, name: &[u8]) -> Result<()> {
         if self.locals.len() == u8::MAX as usize {
-            Err(ParseError::TooManyLocals)
+            Err(Error::TooManyLocals)
         } else {
             self.locals.push((Vec::from(name), self.nest_level));
             if self.locals.len() > self.num_locals as usize {
@@ -913,11 +898,11 @@ impl<'a> Parser<'a> {
     }
 
     fn find_or_add_string(&mut self, name: &[u8]) -> Result<u8> {
-        find_or_add(&mut self.string_literals, Vec::from(name)).ok_or(ParseError::TooManyStrings)
+        find_or_add(&mut self.string_literals, Vec::from(name)).ok_or(Error::TooManyStrings)
     }
 
     fn find_or_add_number(&mut self, num: f64) -> Result<u8> {
-        find_or_add(&mut self.number_literals, num).ok_or(ParseError::TooManyNumbers)
+        find_or_add(&mut self.number_literals, num).ok_or(Error::TooManyNumbers)
     }
 }
 
@@ -1619,7 +1604,7 @@ mod tests {
         let input = lexer::lex(text).unwrap();
         assert_eq!(
             parse_chunk(input),
-            Err(ParseError::Expect(TokenType::Assign))
+            Err(Error::Expect(TokenType::Assign))
         );
     }
 }

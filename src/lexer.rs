@@ -1,37 +1,13 @@
 //! This module contains functions which can tokenize a string input.
 
-use std::error::Error;
-use std::fmt::{self, Display, Formatter};
-
-use crate::Token;
+use crate::{Error, Result, Token};
 use crate::TokenType::{self, *};
-
-#[derive(Debug)]
-pub enum LexerError {
-    UnclosedString(usize),
-    InvalidCharacter(u8, usize),
-    BadNumber(usize),
-}
-impl Error for LexerError {}
-
-impl Display for LexerError {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        use LexerError::*;
-        match self {
-            UnclosedString(i) => write!(f, "Unclosed string, starting at offset {}", i),
-            InvalidCharacter(c, i) => write!(f, "Invalid character '{}' at offset {}", c, i),
-            BadNumber(i) => write!(f, "Malformed number at offset {}", i),
-        }
-    }
-}
 
 pub struct TokenList<'a> {
     pub text: &'a [u8],
     pub tokens: Vec<Token>,
     //pub linebreaks: Vec<usize>,
 }
-
-pub type Result<T> = std::result::Result<T, LexerError>;
 
 pub fn lex(input: &[u8]) -> Result<TokenList> {
     let lexer = Lexer {
@@ -90,7 +66,7 @@ impl<'a> Lexer<'a> {
                     } else if c.is_ascii_alphabetic() || c == b'_' {
                         self.lex_word()
                     } else {
-                        return Err(LexerError::InvalidCharacter(c, self.tok_start));
+                        return Err(Error::InvalidCharacter(c, self.tok_start));
                     }
                 }
             };
@@ -183,7 +159,7 @@ impl<'a> Lexer<'a> {
                 b'=' => Ok(Assign),
                 b'<' => Ok(Less),
                 b'>' => Ok(Greater),
-                b'~' => Err(LexerError::InvalidCharacter(first_char, self.tok_start)),
+                b'~' => Err(Error::InvalidCharacter(first_char, self.tok_start)),
                 _ => panic!(),
             }
         }
@@ -199,17 +175,17 @@ impl<'a> Lexer<'a> {
                 break;
             } else if c == b'\\' {
                 if self.next().is_none() {
-                    return Err(LexerError::UnclosedString(self.tok_start));
+                    return Err(Error::UnclosedString(self.tok_start));
                 }
             } else if c == b'\n' {
-                return Err(LexerError::UnclosedString(self.tok_start));
+                return Err(Error::UnclosedString(self.tok_start));
             }
         }
 
         if found_matching_quote {
             Ok(LiteralString)
         } else {
-            Err(LexerError::UnclosedString(self.tok_start))
+            Err(Error::UnclosedString(self.tok_start))
         }
     }
 
@@ -221,7 +197,7 @@ impl<'a> Lexer<'a> {
             // Has to be at least one digit
             match self.next() {
                 Some(c) if c.is_ascii_hexdigit() => (),
-                _ => return Err(LexerError::BadNumber(self.tok_start)),
+                _ => return Err(Error::BadNumber(self.tok_start)),
             }
             while let Some(c) = self.peek() {
                 if c.is_ascii_hexdigit() {
@@ -231,7 +207,7 @@ impl<'a> Lexer<'a> {
                 }
             }
             match self.peek() {
-                Some(c) if c.is_ascii_alphabetic() => Err(LexerError::BadNumber(self.tok_start)),
+                Some(c) if c.is_ascii_alphabetic() => Err(Error::BadNumber(self.tok_start)),
                 _ => Ok(LiteralHexNumber),
             }
         } else {
@@ -283,7 +259,7 @@ impl<'a> Lexer<'a> {
             self.lex_digits();
         }
         match self.peek() {
-            Some(c) if c.is_ascii_alphabetic() => Err(LexerError::BadNumber(self.tok_start)),
+            Some(c) if c.is_ascii_alphabetic() => Err(Error::BadNumber(self.tok_start)),
             _ => Ok(()),
         }
     }

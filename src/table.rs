@@ -1,4 +1,4 @@
-use crate::{EvalError, LuaVal};
+use crate::{Error, LuaVal, Result};
 
 use std::collections::HashMap;
 
@@ -16,10 +16,10 @@ impl Table {
         }
     }
 
-    pub fn insert(&mut self, key: LuaVal, value: LuaVal) -> Result<(), EvalError> {
+    pub fn insert(&mut self, key: LuaVal, value: LuaVal) -> Result<()> {
         match key {
-            LuaVal::Nil => Err(EvalError::TableKeyNil),
-            LuaVal::Number(n) if n.is_nan() => Err(EvalError::TableKeyNan),
+            LuaVal::Nil => Err(Error::TableKeyNil),
+            LuaVal::Number(n) if n.is_nan() => Err(Error::TableKeyNan),
             _ => {
                 self.map.insert(key, value);
                 Ok(())
