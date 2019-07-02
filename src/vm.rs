@@ -5,10 +5,23 @@ use std::collections::HashMap;
 use std::io::{self, Write};
 use std::ops::{Add, Div, Mul, Rem, Sub};
 use std::rc::Rc;
+use std::result;
 
 use crate::LuaVal::*;
 use crate::{lexer, lua_std, parser};
-use crate::{Chunk, Error, Instr, LuaVal, Result};
+use crate::{Chunk, Instr, LuaVal};
+
+#[derive(Debug)]
+pub enum EvalError {
+    TableKeyNan,
+    TableKeyNil,
+    StackError,
+    SingleTypeError(Instr, LuaVal),
+    DoubleTypeError(Instr, LuaVal, LuaVal),
+    Other,
+}
+
+type Result<T> = result::Result<T, EvalError>;
 
 #[derive(Default)]
 pub struct State {
@@ -75,7 +88,7 @@ impl State {
                         f(self);
                         stack.push(Nil);
                     } else {
-                        return Err(Error::Other);
+                        return Err(EvalError::Other);
                     }
                 }
 
@@ -120,7 +133,7 @@ impl State {
                                 next_val = Some(Number(current));
                             }
                         }
-                        _ => return Err(Error::Other),
+                        _ => return Err(EvalError::Other),
                     }
                     if let Some(x) = next_val {
                         stack[local_slot] = x.clone();
@@ -173,7 +186,7 @@ impl State {
                     if let Number(n) = e {
                         stack.push(Number(-n));
                     } else {
-                        return Err(Error::SingleTypeError(instr, e));
+                        return Err(EvalError::SingleTypeError(instr, e));
                     }
                 }
                 Instr::Not => {
@@ -190,7 +203,7 @@ impl State {
                         let val = t.borrow().get(&key);
                         stack.push(val.clone());
                     } else {
-                        return Err(Error::SingleTypeError(instr, t));
+                        return Err(EvalError::SingleTypeError(instr, t));
                     }
                 }
 
@@ -201,7 +214,7 @@ impl State {
                         let key = LuaString(Rc::new(get_string(&chunk, i as usize)));
                         t.borrow_mut().insert(key, v)?;
                     } else {
-                        return Err(Error::SingleTypeError(instr, t));
+                        return Err(EvalError::SingleTypeError(instr, t));
                     }
                 }
 
@@ -212,7 +225,7 @@ impl State {
                         let val = table.borrow().get(&key);
                         stack.push(val.clone());
                     } else {
-                        return Err(Error::SingleTypeError(instr, t));
+                        return Err(EvalError::SingleTypeError(instr, t));
                     }
                 }
 
@@ -223,7 +236,7 @@ impl State {
                     if let Tbl(t) = t {
                         t.borrow_mut().insert(key, val)?;
                     } else {
-                        return Err(Error::SingleTypeError(instr, t));
+                        return Err(EvalError::SingleTypeError(instr, t));
                     }
                 }
 
@@ -264,13 +277,13 @@ fn attempt_concat(stack: &mut Vec<LuaVal>) -> Result<()> {
         return Ok(());
     }
 
-    Err(Error::DoubleTypeError(Instr::Concat, v1, v2))
+    Err(EvalError::DoubleTypeError(Instr::Concat, v1, v2))
 }
 
 /// Evaluate a function of 2 floats which returns a bool.
 ///
 /// Take 2 values from the stack, pass them to `f`, and push the returned value
-/// onto the stack. Returns an `Error` if anything goes wrong.
+/// onto the stack. Returns an `EvalError` if anything goes wrong.
 fn eval_float_bool<F>(f: F, instr: Instr, stack: &mut Vec<LuaVal>) -> Result<()>
 where
     F: FnOnce(&f64, &f64) -> bool,
@@ -282,13 +295,13 @@ where
         return Ok(());
     }
 
-    Err(Error::DoubleTypeError(instr, v1, v2))
+    Err(EvalError::DoubleTypeError(instr, v1, v2))
 }
 
 /// Evaluate a function of 2 floats which returns a float.
 ///
 /// Take 2 values from the stack, pass them to `f`, and push the returned value
-/// onto the stack. Returns an `Error` if anything goes wrong.
+/// onto the stack. Returns an `EvalError` if anything goes wrong.
 fn eval_float_float<F>(f: F, instr: Instr, stack: &mut Vec<LuaVal>) -> Result<()>
 where
     F: FnOnce(f64, f64) -> f64,
@@ -301,7 +314,7 @@ where
     }
 
     // This has to be outside the `if let` to avoid borrow issues.
-    Err(Error::DoubleTypeError(instr, v1, v2))
+    Err(EvalError::DoubleTypeError(instr, v1, v2))
 }
 
 #[cfg(test)]
