@@ -1,62 +1,56 @@
 use std::mem::swap;
-use std::result;
 use std::str;
 use std::u8;
 
-use crate::{Instr, Token, TokenList, TokenType};
+use crate::lexer::TokenStream;
+use crate::Error;
+use crate::ErrorKind;
+use crate::Instr;
+use crate::Result;
+use crate::Token;
+use crate::TokenType;
 
 #[derive(Debug, PartialEq)]
 pub struct Chunk {
     pub code: Vec<Instr>,
     pub number_literals: Vec<f64>,
-    pub string_literals: Vec<Vec<u8>>,
+    pub string_literals: Vec<String>,
     pub num_locals: u8,
 }
 
-#[derive(Debug, PartialEq)]
-pub enum ParseError {
-    Unsupported,
-    Unexpected(Token),
-    Expect(TokenType),
-    UnexpectedEof,
-    TooManyNumbers,
-    TooManyStrings,
-    TooManyLocals,
-    Complexity,
+pub fn parse_str(source: &str) -> Result<Chunk> {
+    let parser = Parser::new(source);
+    parser.parse_chunk()
 }
-
-pub fn parse_chunk(token_list: TokenList) -> Result<Chunk> {
-    let p = Parser::new(token_list);
-
-    p.parse_chunk()
-}
-
-type Result<T> = result::Result<T, ParseError>;
 
 /// Tracks the current state, to make parsing easier.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 struct Parser<'a> {
     /// The input token stream.
-    input: Vec<Token>,
+    input: TokenStream<'a>,
     /// The bytecode for the resulting Chunk.
     output: Vec<Instr>,
     /// The raw source code
-    text: &'a [u8],
-    string_literals: Vec<Vec<u8>>,
+    text: &'a str,
+    string_literals: Vec<String>,
     number_literals: Vec<f64>,
     nest_level: i32,
-    locals: Vec<(Vec<u8>, i32)>,
+    locals: Vec<(String, i32)>,
     /// The amount of local slots the resulting Chunk will have.
     num_locals: u8,
 }
 
 impl<'a> Parser<'a> {
     /// Basic constructor
-    fn new(token_list: TokenList<'a>) -> Self {
-        let input = token_list.tokens.into_iter().rev().collect();
+    fn new(source: &'a str) -> Self {
+        let tokens = TokenStream::new(source);
+        Parser::from_token_stream(source, tokens)
+    }
+
+    fn from_token_stream(source: &'a str, tokens: TokenStream<'a>) -> Self {
         Parser {
-            input,
-            text: token_list.text,
+            input: tokens,
+            text: source,
             output: Vec::new(),
             string_literals: Vec::new(),
             number_literals: Vec::new(),
@@ -73,79 +67,57 @@ impl<'a> Parser<'a> {
         self.output.push(instr);
     }
 
-    /// Return the next Token.
-    fn next(&mut self) -> Option<Token> {
-        self.input.pop()
-    }
-
-    /// Peek at the next Token.
-    fn peek(&self) -> Option<&Token> {
-        self.input.last()
-    }
-
-    /// Return whether the next token is of the expected type, without popping
-    /// it.
-    fn peek_type(&self, expected_typ: TokenType) -> bool {
-        self.peek().map(|t| t.typ == expected_typ).unwrap_or(false)
-    }
-
     /// Pulls a token off the input and checks it against `tok`. If it doesn't
     /// match, it returns an `Err`.
     fn expect(&mut self, expected: TokenType) -> Result<()> {
-        match self.next() {
+        match self.input.next()? {
             Some(t) => {
                 if t.typ == expected {
                     Ok(())
                 } else {
-                    Err(ParseError::Expect(expected))
+                    Err(self.error(ErrorKind::UnexpectedTok))
                 }
             }
-            _ => Err(ParseError::Expect(expected)),
+            _ => Err(self.error(ErrorKind::UnexpectedTok)),
         }
-    }
-
-    /// Checks the next token's type. If it matches `typ`, it is popped off and
-    /// returned as `Some`. Else, we return `None`.
-    fn try_pop(&mut self, expected_type: TokenType) -> Option<Token> {
-        match self.peek() {
-            Some(t) if t.typ == expected_type => self.next(),
-            _ => None,
-        }
-    }
-
-    fn has_next(&mut self, expected_type: TokenType) -> bool {
-        self.try_pop(expected_type).is_some()
     }
 
     /// Expect an identifier token and get the actual identifier from the text.
-    fn expect_identifier(&mut self) -> Result<Vec<u8>> {
-        match self.try_pop(TokenType::Identifier) {
+    fn expect_identifier(&mut self) -> Result<String> {
+        match self.input.try_pop(TokenType::Identifier)? {
             Some(token) => {
                 let Token { start, len, .. } = token;
-                let name = self.text[start..(start + len as usize)].to_vec();
-                Ok(name)
+                let name = &self.text[start..(start + len as usize)];
+                Ok(name.to_string())
             }
-            None => Err(ParseError::Expect(TokenType::Identifier)),
+            None => Err(self.error(ErrorKind::UnexpectedTok)),
         }
     }
 
-    fn unexpected(&mut self) -> ParseError {
-        match self.next() {
-            Some(tok) => ParseError::Unexpected(tok),
-            None => ParseError::UnexpectedEof,
-        }
+    fn err_unexpected(&mut self) -> Error {
+        self.error(ErrorKind::UnexpectedTok)
+        // match self.next() {
+        //     Some(tok) => ParseError::Unexpected(tok),
+        //     None => ParseError::UnexpectedEof,
+        // }
     }
 
-    /// Converts a string's offsets into an &[u8].
-    fn get_string_from_text(&self, start: usize, len: u32) -> Vec<u8> {
-        self.text[(start + 1)..(start + len as usize - 1)].to_vec()
+    /// Converts a string's offsets into a real String.
+    fn get_string_from_text(&self, start: usize, len: u32) -> String {
+        self.text[(start + 1)..(start + len as usize - 1)].to_string()
     }
+
+    fn error(&self, kind: ErrorKind) -> Error {
+        Error::new(kind)
+    }
+
+    // Actual parsing
 
     /// Entry point for the parser.
     fn parse_chunk(mut self) -> Result<Chunk> {
         self.parse_statements()?;
-        if let Some(x) = self.next() {
-            Err(ParseError::Unexpected(x))
+        if self.input.next()?.is_some() {
+            Err(self.err_unexpected())
         } else {
             let c = Chunk {
                 code: self.output,
@@ -159,11 +131,11 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_statements(&mut self) -> Result<()> {
-        while let Some(token) = self.next() {
+        while let Some(tok) = self.input.next()? {
             use TokenType::*;
-            match token.typ {
+            match tok.typ {
                 Identifier | LParen => {
-                    self.input.push(token);
+                    self.input.push_back(tok);
                     self.parse_assign_or_call()?;
                 }
                 If => self.parse_if()?,
@@ -174,14 +146,12 @@ impl<'a> Parser<'a> {
                 Local => self.parse_locals()?,
                 For => self.parse_for()?,
                 _ => {
-                    // Put the input token back if it doesn't start a statement
-                    self.input.push(token);
+                    self.input.push_back(tok);
                     break;
                 }
             }
-            self.try_pop(TokenType::Semi);
+            self.input.try_pop(TokenType::Semi)?;
         }
-
         Ok(())
     }
 
@@ -196,11 +166,10 @@ impl<'a> Parser<'a> {
 
         let mut assignment_code = vec![first_set_instr];
 
-        while self.peek_type(TokenType::Comma) {
-            self.next();
+        while self.input.try_pop(TokenType::Comma)?.is_some() {
             match self.parse_place()? {
                 Some(instr) => assignment_code.push(instr),
-                None => return Err(self.unexpected()),
+                None => return Err(self.err_unexpected()),
             }
         }
         self.expect(TokenType::Assign)?;
@@ -226,18 +195,17 @@ impl<'a> Parser<'a> {
     /// return `None`. If it's a place expression, returns the instruction
     /// to perform the assignment.
     fn parse_place(&mut self) -> Result<Option<Instr>> {
-        if self.peek_type(TokenType::LParen) {
-            self.next();
+        if self.input.try_pop(TokenType::LParen)?.is_some() {
             self.parse_expr()?;
             self.expect(TokenType::RParen)?;
             match self.parse_place_extension() {
-                Ok(None) => Err(self.unexpected()),
+                Ok(None) => Err(self.err_unexpected()),
                 x => x,
             }
         } else {
             let name = self.expect_identifier()?;
-            if let Some(tok) = self.peek() {
-                match tok.typ {
+            if let Some(typ) = self.input.peek_type()? {
+                match typ {
                     TokenType::Assign | TokenType::Comma => {
                         let instr = self.parse_set_identifier(&name)?;
                         Ok(Some(instr))
@@ -251,17 +219,17 @@ impl<'a> Parser<'a> {
                         self.parse_get_identifier(&name)?;
                         self.parse_place_extension()
                     }
-                    _ => Err(ParseError::Expect(TokenType::Assign)),
+                    _ => Err(self.err_unexpected()),
                 }
             } else {
-                Err(ParseError::Expect(TokenType::Assign))
+                Err(self.err_unexpected())
             }
         }
     }
 
     /// Emit the bytecode to retrieve the value of the given `name`, which
     /// may resolve to either a local or a global.
-    fn parse_get_identifier(&mut self, name: &[u8]) -> Result<()> {
+    fn parse_get_identifier(&mut self, name: &str) -> Result<()> {
         let instr = match find_last_local(&self.locals, name) {
             Some(i) => Instr::GetLocal(i as u8),
             None => {
@@ -276,7 +244,7 @@ impl<'a> Parser<'a> {
     /// Return the instruction to assign to the given identifier.
     ///
     /// Does not alter `self.output`.
-    fn parse_set_identifier(&mut self, name: &[u8]) -> Result<Instr> {
+    fn parse_set_identifier(&mut self, name: &str) -> Result<Instr> {
         match find_last_local(&self.locals, name) {
             Some(i) => Ok(Instr::SetLocal(i as u8)),
             None => {
@@ -289,8 +257,8 @@ impl<'a> Parser<'a> {
     /// Any place expression can be followed by an indexing operation or a
     /// function/method call.
     fn parse_place_extension(&mut self) -> Result<Option<Instr>> {
-        if let Some(token) = self.next() {
-            match token.typ {
+        if let Some(tok) = self.input.next()? {
+            match tok.typ {
                 TokenType::Dot => self.parse_place_field(),
                 TokenType::LSquare => self.parse_place_index(),
                 TokenType::LParen => self.parse_place_call(),
@@ -299,7 +267,7 @@ impl<'a> Parser<'a> {
                     panic!("Unparenthesized function calls unsupported")
                 }
                 _ => {
-                    self.input.push(token);
+                    self.input.push_back(tok);
                     Ok(None)
                 }
             }
@@ -312,7 +280,7 @@ impl<'a> Parser<'a> {
     fn parse_place_field(&mut self) -> Result<Option<Instr>> {
         let name = self.expect_identifier()?;
         let i = self.find_or_add_string(&name)?;
-        if let Some(next_tok) = self.peek() {
+        if let Some(next_tok) = self.input.peek()? {
             if let TokenType::Assign | TokenType::Comma = next_tok.typ {
                 Ok(Some(Instr::SetField(i)))
             } else {
@@ -320,7 +288,7 @@ impl<'a> Parser<'a> {
                 self.parse_place_extension()
             }
         } else {
-            Err(ParseError::Expect(TokenType::Assign))
+            Err(self.err_unexpected())
         }
     }
 
@@ -328,7 +296,7 @@ impl<'a> Parser<'a> {
     fn parse_place_index(&mut self) -> Result<Option<Instr>> {
         self.parse_expr()?;
         self.expect(TokenType::RSquare)?;
-        if let Some(next_tok) = self.peek() {
+        if let Some(next_tok) = self.input.peek()? {
             if let TokenType::Assign | TokenType::Comma = next_tok.typ {
                 Ok(Some(Instr::SetTable))
             } else {
@@ -336,13 +304,13 @@ impl<'a> Parser<'a> {
                 self.parse_place_extension()
             }
         } else {
-            Err(ParseError::Expect(TokenType::Assign))
+            Err(self.err_unexpected())
         }
     }
 
     /// Parse a function call as part of a place expresion.
     fn parse_place_call(&mut self) -> Result<Option<Instr>> {
-        let num_args = if self.peek_type(TokenType::RParen) {
+        let num_args = if self.input.peek_type_is(TokenType::RParen)? {
             0
         } else {
             self.parse_explist()?
@@ -358,16 +326,16 @@ impl<'a> Parser<'a> {
         let start = self.locals.len() as u8;
 
         let name1 = self.expect_identifier()?;
-        self.add_local(name1.as_slice())?;
+        self.add_local(&name1)?;
         let mut num_names = 1;
 
-        while self.has_next(TokenType::Comma) {
+        while self.input.try_pop(TokenType::Comma)?.is_some() {
             let name = self.expect_identifier()?;
-            self.add_local(name.as_slice())?;
+            self.add_local(&name)?;
             num_names += 1;
         }
 
-        if self.has_next(TokenType::Assign) {
+        if self.input.try_pop(TokenType::Assign)?.is_some() {
             let num_rvalues = self.parse_explist()? as isize;
             let diff = num_names - num_rvalues;
             if diff < 0 {
@@ -399,22 +367,22 @@ impl<'a> Parser<'a> {
         let name = self.expect_identifier()?;
         self.nest_level += 1;
         self.expect(TokenType::Assign)?;
-        self.parse_numeric_for(name.as_slice())?;
+        self.parse_numeric_for(&name)?;
         self.level_down();
 
         Ok(())
     }
 
     /// Parse a numeric for, starting with the first expression after the `=`.
-    fn parse_numeric_for(&mut self, name: &[u8]) -> Result<()> {
+    fn parse_numeric_for(&mut self, name: &str) -> Result<()> {
         // The start(current), stop and step are stored in three "hidden" local slots.
         let current_index_slot = self.locals.len() as u8;
-        self.add_local(b"")?;
-        self.add_local(b"")?;
-        self.add_local(b"")?;
+        self.add_local("")?;
+        self.add_local("")?;
+        self.add_local("")?;
 
         // The actual local is in a fourth slot, so that it can be reassigned to.
-        self.add_local(name)?;
+        self.add_local(&name)?;
 
         // First, all 3 control expressions are evaluated.
         self.parse_expr()?;
@@ -422,14 +390,14 @@ impl<'a> Parser<'a> {
         self.parse_expr()?;
 
         // optional step value
-        if self.has_next(TokenType::Comma) {
+        if self.input.try_pop(TokenType::Comma)?.is_some() {
             self.parse_expr()?;
             self.expect(TokenType::Do)?;
-        } else if self.has_next(TokenType::Do) {
+        } else if self.input.try_pop(TokenType::Do)?.is_some() {
             let i = self.find_or_add_number(1.0)?;
             self.push(Instr::PushNum(i));
         } else {
-            return Err(ParseError::Expect(TokenType::Comma));
+            return Err(self.err_unexpected());
         }
 
         // The ForPrep command pulls three values off the stack and places them
@@ -504,8 +472,8 @@ impl<'a> Parser<'a> {
     fn parse_if(&mut self) -> Result<()> {
         self.nest_level += 1;
         self.parse_expr()?;
-
         self.expect(TokenType::Then)?;
+        dbg!(&self);
         let mut old_output = Vec::new();
         swap(&mut self.output, &mut old_output);
         self.parse_statements()?;
@@ -513,7 +481,7 @@ impl<'a> Parser<'a> {
         // If there's another arm, add 1 to the branch instruction to skip the closing Jump.
         // If there's no End token, handle it later.
         let body_len = self.output.len() as isize
-            + if self.peek_type(TokenType::Else) || self.peek_type(TokenType::ElseIf) {
+            + if self.next_tok_is_else_or_elseif()? {
                 1
             } else {
                 0
@@ -525,6 +493,11 @@ impl<'a> Parser<'a> {
         self.parse_if_end()
     }
 
+    fn next_tok_is_else_or_elseif(&mut self) -> Result<bool> {
+        Ok(self.input.peek_type_is(TokenType::Else)?
+            || self.input.peek_type_is(TokenType::ElseIf)?)
+    }
+
     /// Parse either:
     /// - An 'elseif' condition and body, and any subsequent arms.
     /// - An 'else' body.
@@ -533,12 +506,12 @@ impl<'a> Parser<'a> {
     /// Then handle the logic of closing those.
     fn parse_if_end(&mut self) -> Result<()> {
         self.level_down();
-        if self.peek_type(TokenType::ElseIf) {
+        if self.input.peek_type_is(TokenType::ElseIf)? {
             let mut old_output = Vec::new();
             swap(&mut self.output, &mut old_output);
             self.parse_elseif()?;
             self.close_else_or_elseif(old_output);
-        } else if self.peek_type(TokenType::Else) {
+        } else if self.input.peek_type_is(TokenType::Else)? {
             let mut old_output = Vec::new();
             swap(&mut self.output, &mut old_output);
             self.parse_else()?;
@@ -559,14 +532,14 @@ impl<'a> Parser<'a> {
 
     fn parse_elseif(&mut self) -> Result<()> {
         self.nest_level += 1;
-        self.next();
+        self.input.next()?;
         self.parse_expr()?;
         self.expect(TokenType::Then)?;
         let mut old_output = Vec::new();
         swap(&mut self.output, &mut old_output);
         self.parse_statements()?;
         let body_len = self.output.len() as isize
-            + if self.peek_type(TokenType::Else) || self.peek_type(TokenType::ElseIf) {
+            + if self.next_tok_is_else_or_elseif()? {
                 1
             } else {
                 0
@@ -580,7 +553,7 @@ impl<'a> Parser<'a> {
 
     fn parse_else(&mut self) -> Result<()> {
         self.nest_level += 1;
-        self.next();
+        self.input.next()?;
         self.parse_statements()?;
         self.expect(TokenType::End)?;
         Ok(())
@@ -598,9 +571,9 @@ impl<'a> Parser<'a> {
         // An explist has to have at least one expression.
         self.parse_expr()?;
         let mut output = 1;
-        while self.has_next(TokenType::Comma) {
+        while self.input.try_pop(TokenType::Comma)?.is_some() {
             if output == u8::MAX {
-                return Err(ParseError::Complexity);
+                return Err(Error::new(ErrorKind::Complexity));
             }
             self.parse_expr()?;
             output += 1;
@@ -617,7 +590,7 @@ impl<'a> Parser<'a> {
     /// Attempt to parse an 'or' expression. Precedence 8.
     fn parse_or(&mut self) -> Result<()> {
         self.parse_and()?;
-        while self.has_next(TokenType::Or) {
+        while self.input.try_pop(TokenType::Or)?.is_some() {
             let mut old_output = Vec::new();
             swap(&mut self.output, &mut old_output);
             self.push(Instr::Pop);
@@ -634,7 +607,7 @@ impl<'a> Parser<'a> {
     /// Attempt to parse an 'and' expression. Precedence 7.
     fn parse_and(&mut self) -> Result<()> {
         self.parse_comparison()?;
-        while self.has_next(TokenType::And) {
+        while self.input.try_pop(TokenType::And)?.is_some() {
             let mut old_output = Vec::new();
             swap(&mut self.output, &mut old_output);
             // If it doesn't short circuit, we discard the left value.
@@ -655,7 +628,7 @@ impl<'a> Parser<'a> {
     fn parse_comparison(&mut self) -> Result<()> {
         self.parse_concat()?;
 
-        while let Some(t) = self.next() {
+        while let Some(t) = self.input.next()? {
             let i = match t.typ {
                 TokenType::Less => Instr::Less,
                 TokenType::LessEqual => Instr::LessEqual,
@@ -664,7 +637,7 @@ impl<'a> Parser<'a> {
                 TokenType::Equal => Instr::Equal,
                 TokenType::NotEqual => Instr::NotEqual,
                 _ => {
-                    self.input.push(t);
+                    self.input.push_back(t);
                     break;
                 }
             };
@@ -680,7 +653,7 @@ impl<'a> Parser<'a> {
     /// `..`
     fn parse_concat(&mut self) -> Result<()> {
         self.parse_addition()?;
-        if self.has_next(TokenType::DotDot) {
+        if self.input.try_pop(TokenType::DotDot)?.is_some() {
             self.parse_concat()?;
             self.push(Instr::Concat);
         }
@@ -693,12 +666,12 @@ impl<'a> Parser<'a> {
     /// `+`, `-`
     fn parse_addition(&mut self) -> Result<()> {
         self.parse_multiplication()?;
-        while let Some(tok) = self.next() {
+        while let Some(tok) = self.input.next()? {
             let i = match tok.typ {
                 TokenType::Plus => Instr::Add,
                 TokenType::Minus => Instr::Subtract,
                 _ => {
-                    self.input.push(tok);
+                    self.input.push_back(tok);
                     break;
                 }
             };
@@ -714,13 +687,13 @@ impl<'a> Parser<'a> {
     /// `*`, `/`, `%`
     fn parse_multiplication(&mut self) -> Result<()> {
         self.parse_unary()?;
-        while let Some(tok) = self.next() {
+        while let Some(tok) = self.input.next()? {
             let i = match tok.typ {
                 TokenType::Star => Instr::Multiply,
                 TokenType::Slash => Instr::Divide,
                 TokenType::Mod => Instr::Mod,
                 _ => {
-                    self.input.push(tok);
+                    self.input.push_back(tok);
                     break;
                 }
             };
@@ -736,13 +709,13 @@ impl<'a> Parser<'a> {
     ///
     /// `not`, `#`, `-`
     fn parse_unary(&mut self) -> Result<()> {
-        if let Some(tok) = self.next() {
+        if let Some(tok) = self.input.next()? {
             let i = match tok.typ {
                 TokenType::Not => Instr::Not,
                 TokenType::Hash => Instr::Length,
                 TokenType::Minus => Instr::Negate,
                 _ => {
-                    self.input.push(tok);
+                    self.input.push_back(tok);
                     return self.parse_pow();
                 }
             };
@@ -758,7 +731,7 @@ impl<'a> Parser<'a> {
     /// `^`
     fn parse_pow(&mut self) -> Result<()> {
         self.parse_primary()?;
-        if self.has_next(TokenType::Caret) {
+        if self.input.try_pop(TokenType::Caret)?.is_some() {
             self.parse_unary()?;
             self.push(Instr::Pow);
         }
@@ -777,7 +750,7 @@ impl<'a> Parser<'a> {
     /// * One of the keywords `nil`, `false` or `true
     /// * A table constructor
     fn parse_primary(&mut self) -> Result<()> {
-        if let Some(tok) = self.next() {
+        if let Some(tok) = self.input.next()? {
             match tok.typ {
                 TokenType::LCurly => self.parse_table()?,
                 TokenType::LParen => {
@@ -791,47 +764,45 @@ impl<'a> Parser<'a> {
                     self.parse_after_prefixexp()?;
                 }
                 TokenType::LiteralNumber => {
-                    let bytes = &self.text[tok.start..(tok.start + tok.len as usize)];
-                    let s = str::from_utf8(bytes).unwrap();
+                    let s = &self.text[tok.start..(tok.start + tok.len as usize)];
                     let n = s.parse::<f64>().unwrap();
                     let i = self.find_or_add_number(n)?;
                     self.push(Instr::PushNum(i));
                 }
                 TokenType::LiteralHexNumber => {
-                    let bytes = &self.text[(tok.start + 2)..(tok.start + tok.len as usize)];
-                    let s = str::from_utf8(bytes).unwrap();
+                    let s = &self.text[(tok.start + 2)..(tok.start + tok.len as usize)];
                     let n = u128::from_str_radix(s, 16).unwrap() as f64;
                     let i = self.find_or_add_number(n)?;
                     self.push(Instr::PushNum(i));
                 }
                 TokenType::LiteralString => {
-                    let bytes = self.get_string_from_text(tok.start, tok.len);
-                    let i = self.find_or_add_string(bytes.as_slice())?;
+                    let s = self.get_string_from_text(tok.start, tok.len);
+                    let i = self.find_or_add_string(&s)?;
                     self.push(Instr::PushString(i));
                 }
                 TokenType::Nil => self.push(Instr::PushNil),
                 TokenType::False => self.push(Instr::PushBool(false)),
                 TokenType::True => self.push(Instr::PushBool(true)),
                 TokenType::DotDotDot | TokenType::Function => {
-                    return Err(ParseError::Unsupported);
+                    return Err(Error::new(ErrorKind::UnsupportedFeature));
                 }
                 _ => {
-                    Err::<(), ParseError>(ParseError::Unexpected(tok))?;
+                    return Err(self.err_unexpected());
                 }
             }
             Ok(())
         } else {
-            Err(ParseError::UnexpectedEof)
+            Err(Error::new(ErrorKind::UnexpectedEof))
         }
     }
 
     fn parse_table(&mut self) -> Result<()> {
         self.push(Instr::NewTable);
-        if !self.has_next(TokenType::RCurly) {
+        if self.input.try_pop(TokenType::RCurly)?.is_none() {
             self.parse_table_entry()?;
-            while is_fieldsep(self.peek()) {
-                self.next();
-                if self.peek_type(TokenType::RCurly) {
+            while is_fieldsep(self.input.peek()?) {
+                self.input.next()?;
+                if self.input.peek_type_is(TokenType::RCurly)? {
                     break;
                 } else {
                     self.parse_table_entry()?;
@@ -844,7 +815,7 @@ impl<'a> Parser<'a> {
 
     /// Parse a potential table entry
     fn parse_table_entry(&mut self) -> Result<()> {
-        if let Some(tok) = self.next() {
+        if let Some(tok) = self.input.next()? {
             match tok.typ {
                 TokenType::Identifier => {
                     let s = &self.text[tok.start..(tok.start + tok.len as usize)];
@@ -865,11 +836,11 @@ impl<'a> Parser<'a> {
     ///
     /// A prefixexp is a variable, functioncall, or parenthesized expression.
     fn parse_after_prefixexp(&mut self) -> Result<()> {
-        if self.has_next(TokenType::LParen) {
+        if self.input.try_pop(TokenType::LParen)?.is_some() {
             self.parse_call_exp()
-        } else if self.has_next(TokenType::Dot) {
+        } else if self.input.try_pop(TokenType::Dot)?.is_some() {
             self.parse_field()
-        } else if self.has_next(TokenType::LSquare) {
+        } else if self.input.try_pop(TokenType::LSquare)?.is_some() {
             self.parse_expr()?;
             self.expect(TokenType::RSquare)?;
             self.push(Instr::GetTable);
@@ -882,13 +853,13 @@ impl<'a> Parser<'a> {
     /// Parse a field access
     fn parse_field(&mut self) -> Result<()> {
         let name = self.expect_identifier()?;
-        let i = self.find_or_add_string(name.as_slice())?;
+        let i = self.find_or_add_string(&name)?;
         self.push(Instr::GetField(i));
         self.parse_after_prefixexp()
     }
 
     fn parse_call_exp(&mut self) -> Result<()> {
-        let num_args = if self.peek_type(TokenType::RParen) {
+        let num_args = if self.input.peek_type_is(TokenType::RParen)? {
             0
         } else {
             self.parse_explist()?
@@ -900,11 +871,11 @@ impl<'a> Parser<'a> {
 
     /// Creates a new local slot at the current nest_level.
     /// Fail if we have exceeded the maximum number of locals.
-    fn add_local(&mut self, name: &[u8]) -> Result<()> {
+    fn add_local(&mut self, name: &str) -> Result<()> {
         if self.locals.len() == u8::MAX as usize {
-            Err(ParseError::TooManyLocals)
+            Err(Error::new(ErrorKind::TooManyLocals))
         } else {
-            self.locals.push((Vec::from(name), self.nest_level));
+            self.locals.push((name.to_string(), self.nest_level));
             if self.locals.len() > self.num_locals as usize {
                 self.num_locals += 1;
             }
@@ -912,16 +883,18 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn find_or_add_string(&mut self, name: &[u8]) -> Result<u8> {
-        find_or_add(&mut self.string_literals, Vec::from(name)).ok_or(ParseError::TooManyStrings)
+    fn find_or_add_string(&mut self, name: &str) -> Result<u8> {
+        find_or_add(&mut self.string_literals, name.to_string())
+            .ok_or_else(|| Error::new(ErrorKind::TooManyStrings))
     }
 
     fn find_or_add_number(&mut self, num: f64) -> Result<u8> {
-        find_or_add(&mut self.number_literals, num).ok_or(ParseError::TooManyNumbers)
+        find_or_add(&mut self.number_literals, num)
+            .ok_or_else(|| Error::new(ErrorKind::TooManyStrings))
     }
 }
 
-fn find_last_local(locals: &[(Vec<u8>, i32)], name: &[u8]) -> Option<usize> {
+fn find_last_local(locals: &[(String, i32)], name: &str) -> Option<usize> {
     let mut i = locals.len();
     while i > 0 {
         i -= 1;
@@ -966,69 +939,38 @@ fn is_fieldsep(token: Option<&Token>) -> bool {
 mod tests {
     use super::*;
     use crate::instr::Instr::{self, *};
-    use crate::lexer;
-    use crate::token::{
-        Token,
-        TokenType::{self, *},
-    };
 
-    const TOK: fn(TokenType, usize, u32) -> Token = Token::new;
-
-    fn check_it(input: TokenList, output: Chunk) {
-        assert_eq!(parse_chunk(input).unwrap(), output);
+    fn check_it(input: &str, output: Chunk) {
+        assert_eq!(parse_str(input).unwrap(), output);
     }
 
     #[test]
     fn test1() {
-        let text = b"print 5 + 6";
-        let tokens = vec![
-            TOK(TokenType::Print, 0, 5),
-            TOK(LiteralNumber, 6, 1),
-            TOK(Plus, 8, 1),
-            TOK(LiteralNumber, 10, 1),
-        ];
-        let tl = TokenList { text, tokens };
+        let text = "print 5 + 6";
         let out = Chunk {
             code: vec![PushNum(0), PushNum(1), Add, Instr::Print],
             number_literals: vec![5.0, 6.0],
             string_literals: vec![],
             num_locals: 0,
         };
-        check_it(tl, out);
+        check_it(text, out);
     }
 
     #[test]
     fn test2() {
-        let text = b"print -5^2";
-        let tokens = vec![
-            TOK(TokenType::Print, 0, 5),
-            TOK(Minus, 6, 1),
-            TOK(LiteralNumber, 7, 1),
-            TOK(Caret, 8, 1),
-            TOK(LiteralNumber, 9, 1),
-        ];
-        let tl = TokenList { text, tokens };
+        let text = "print -5^2";
         let out = Chunk {
             code: vec![PushNum(0), PushNum(1), Pow, Negate, Instr::Print],
             number_literals: vec![5.0, 2.0],
             string_literals: vec![],
             num_locals: 0,
         };
-        check_it(tl, out);
+        check_it(text, out);
     }
 
     #[test]
     fn test3() {
-        let text = b"print 5 + true .. 'hi'";
-        let tokens = vec![
-            TOK(TokenType::Print, 0, 5),
-            TOK(LiteralNumber, 6, 1),
-            TOK(Plus, 8, 1),
-            TOK(True, 10, 4),
-            TOK(DotDot, 15, 2),
-            TOK(LiteralString, 18, 4),
-        ];
-        let tl = TokenList { text, tokens };
+        let text = "print 5 + true .. 'hi'";
         let out = Chunk {
             code: vec![
                 PushNum(0),
@@ -1039,24 +981,15 @@ mod tests {
                 Instr::Print,
             ],
             number_literals: vec![5.0],
-            string_literals: vec![b"hi".to_vec()],
+            string_literals: vec!["hi".to_string()],
             num_locals: 0,
         };
-        check_it(tl, out);
+        check_it(text, out);
     }
 
     #[test]
     fn test4() {
-        let text = b"print 1 .. 2 + 3";
-        let tokens = vec![
-            TOK(TokenType::Print, 0, 5),
-            TOK(LiteralNumber, 6, 1),
-            TOK(DotDot, 8, 2),
-            TOK(LiteralNumber, 11, 1),
-            TOK(Plus, 13, 1),
-            TOK(LiteralNumber, 15, 1),
-        ];
-        let tl = TokenList { text, tokens };
+        let text = "print 1 .. 2 + 3";
         let output = Chunk {
             code: vec![
                 PushNum(0),
@@ -1070,76 +1003,48 @@ mod tests {
             string_literals: vec![],
             num_locals: 0,
         };
-        check_it(tl, output);
+        check_it(text, output);
     }
 
     #[test]
     fn test5() {
-        let text = b"print 2^-3";
-        let tokens = vec![
-            TOK(TokenType::Print, 0, 5),
-            TOK(LiteralNumber, 6, 1),
-            TOK(Caret, 7, 1),
-            TOK(Minus, 8, 1),
-            TOK(LiteralNumber, 9, 1),
-        ];
-        let tl = TokenList { text, tokens };
+        let text = "print 2^-3";
         let output = Chunk {
             code: vec![PushNum(0), PushNum(1), Negate, Pow, Instr::Print],
             number_literals: vec![2.0, 3.0],
             string_literals: vec![],
             num_locals: 0,
         };
-        check_it(tl, output);
+        check_it(text, output);
     }
 
     #[test]
     fn test6() {
-        let text = b"print not not 1";
-        let tokens = vec![
-            TOK(TokenType::Print, 0, 5),
-            TOK(TokenType::Not, 6, 3),
-            TOK(TokenType::Not, 10, 3),
-            TOK(LiteralNumber, 14, 1),
-        ];
-        let tl = TokenList { text, tokens };
+        let text = "print not not 1";
         let output = Chunk {
             code: vec![PushNum(0), Instr::Not, Instr::Not, Instr::Print],
             number_literals: vec![1.0],
             string_literals: vec![],
             num_locals: 0,
         };
-        check_it(tl, output);
+        check_it(text, output);
     }
 
     #[test]
     fn test7() {
-        let text = b"a = 5";
-        let tokens = vec![
-            TOK(Identifier, 0, 1),
-            TOK(TokenType::Assign, 2, 1),
-            TOK(LiteralNumber, 4, 1),
-        ];
-        let tl = TokenList { text, tokens };
+        let text = "a = 5";
         let output = Chunk {
             code: vec![PushNum(0), SetGlobal(0)],
             number_literals: vec![5.0],
-            string_literals: vec![b"a".to_vec()],
+            string_literals: vec!["a".to_string()],
             num_locals: 0,
         };
-        check_it(tl, output);
+        check_it(text, output);
     }
 
     #[test]
     fn test8() {
-        let text = b"print true and false";
-        let tokens = vec![
-            TOK(TokenType::Print, 0, 5),
-            TOK(True, 6, 4),
-            TOK(And, 11, 3),
-            TOK(False, 15, 5),
-        ];
-        let tl = TokenList { text, tokens };
+        let text = "print true and false";
         let output = Chunk {
             code: vec![
                 PushBool(true),
@@ -1152,21 +1057,12 @@ mod tests {
             string_literals: vec![],
             num_locals: 0,
         };
-        check_it(tl, output);
+        check_it(text, output);
     }
 
     #[test]
     fn test9() {
-        let text = b"print 5 or nil and true";
-        let tokens = vec![
-            TOK(TokenType::Print, 0, 5),
-            TOK(LiteralNumber, 6, 1),
-            TOK(Or, 8, 2),
-            TOK(Nil, 11, 3),
-            TOK(And, 15, 3),
-            TOK(True, 19, 4),
-        ];
-        let tl = TokenList { text, tokens };
+        let text = "print 5 or nil and true";
         let code = vec![
             PushNum(0),
             BranchTrueKeep(5),
@@ -1183,52 +1079,25 @@ mod tests {
             string_literals: vec![],
             num_locals: 0,
         };
-        check_it(tl, output);
+        check_it(text, output);
     }
 
     #[test]
     fn test10() {
-        let text = b"if true then a = 5 end";
-        let tokens = vec![
-            TOK(If, 0, 2),
-            TOK(True, 3, 4),
-            TOK(Then, 8, 4),
-            TOK(Identifier, 13, 1),
-            TOK(TokenType::Assign, 15, 1),
-            TOK(LiteralNumber, 17, 1),
-            TOK(End, 19, 3),
-        ];
-        let tl = TokenList { text, tokens };
+        let text = "if true then a = 5 end";
         let code = vec![PushBool(true), BranchFalse(2), PushNum(0), SetGlobal(0)];
         let chunk = Chunk {
             code,
             number_literals: vec![5.0],
-            string_literals: vec![b"a".to_vec()],
+            string_literals: vec!["a".to_string()],
             num_locals: 0,
         };
-        check_it(tl, chunk);
+        check_it(text, chunk);
     }
 
     #[test]
     fn test11() {
-        let text = b"if true then a = 5 if true then b = 4 end end";
-        let tokens = vec![
-            TOK(If, 0, 2),
-            TOK(True, 3, 4),
-            TOK(Then, 8, 4),
-            TOK(Identifier, 13, 1),
-            TOK(Assign, 15, 1),
-            TOK(LiteralNumber, 17, 1),
-            TOK(If, 19, 2),
-            TOK(True, 22, 4),
-            TOK(Then, 27, 4),
-            TOK(Identifier, 32, 1),
-            TOK(Assign, 34, 1),
-            TOK(LiteralNumber, 36, 1),
-            TOK(End, 38, 3),
-            TOK(End, 42, 3),
-        ];
-        let tl = TokenList { text, tokens };
+        let text = "if true then a = 5 if true then b = 4 end end";
         let code = vec![
             PushBool(true),
             BranchFalse(6),
@@ -1242,29 +1111,15 @@ mod tests {
         let chunk = Chunk {
             code,
             number_literals: vec![5.0, 4.0],
-            string_literals: vec![b"a".to_vec(), b"b".to_vec()],
+            string_literals: vec!["a".to_string(), "b".to_string()],
             num_locals: 0,
         };
-        check_it(tl, chunk);
+        check_it(text, chunk);
     }
 
     #[test]
     fn test12() {
-        let text = b"if true then a = 5 else a = 4 end";
-        let tokens = vec![
-            TOK(If, 0, 2),
-            TOK(True, 3, 4),
-            TOK(Then, 8, 4),
-            TOK(Identifier, 13, 1),
-            TOK(Assign, 15, 1),
-            TOK(LiteralNumber, 17, 1),
-            TOK(Else, 19, 4),
-            TOK(Identifier, 24, 1),
-            TOK(Assign, 26, 1),
-            TOK(LiteralNumber, 28, 1),
-            TOK(End, 30, 3),
-        ];
-        let tl = TokenList { text, tokens };
+        let text = "if true then a = 5 else a = 4 end";
         let code = vec![
             PushBool(true),
             BranchFalse(3),
@@ -1277,16 +1132,15 @@ mod tests {
         let chunk = Chunk {
             code,
             number_literals: vec![5.0, 4.0],
-            string_literals: vec![b"a".to_vec()],
+            string_literals: vec!["a".to_string()],
             num_locals: 0,
         };
-        check_it(tl, chunk);
+        check_it(text, chunk);
     }
 
     #[test]
     fn test13() {
-        let text = b"if true then a = 5 elseif 6 == 7 then a = 3 else a = 4 end";
-        let input = lexer::lex(text).unwrap();
+        let text = "if true then a = 5 elseif 6 == 7 then a = 3 else a = 4 end";
         let code = vec![
             PushBool(true),
             BranchFalse(3),
@@ -1306,16 +1160,15 @@ mod tests {
         let chunk = Chunk {
             code,
             number_literals: vec![5.0, 6.0, 7.0, 3.0, 4.0],
-            string_literals: vec![b"a".to_vec()],
+            string_literals: vec!["a".to_string()],
             num_locals: 0,
         };
-        check_it(input, chunk);
+        check_it(text, chunk);
     }
 
     #[test]
     fn test14() {
-        let text = b"while a < 10 do a = a + 1 end";
-        let input = lexer::lex(text).unwrap();
+        let text = "while a < 10 do a = a + 1 end";
         let code = vec![
             GetGlobal(0),
             PushNum(0),
@@ -1330,16 +1183,15 @@ mod tests {
         let chunk = Chunk {
             code,
             number_literals: vec![10.0, 1.0],
-            string_literals: vec![b"a".to_vec()],
+            string_literals: vec!["a".to_string()],
             num_locals: 0,
         };
-        check_it(input, chunk);
+        check_it(text, chunk);
     }
 
     #[test]
     fn test15() {
-        let text = b"repeat print 5 until a == b print 4";
-        let input = lexer::lex(text).unwrap();
+        let text = "repeat print 5 until a == b print 4";
         let code = vec![
             PushNum(0),
             Instr::Print,
@@ -1353,16 +1205,15 @@ mod tests {
         let chunk = Chunk {
             code,
             number_literals: vec![5.0, 4.0],
-            string_literals: vec![b"a".to_vec(), b"b".to_vec()],
+            string_literals: vec!["a".to_string(), "b".to_string()],
             num_locals: 0,
         };
-        check_it(input, chunk);
+        check_it(text, chunk);
     }
 
     #[test]
     fn test16() {
-        let text = b"local i i = 2";
-        let input = lexer::lex(text).unwrap();
+        let text = "local i i = 2";
         let code = vec![PushNil, SetLocal(0), PushNum(0), SetLocal(0)];
         let chunk = Chunk {
             code,
@@ -1370,13 +1221,12 @@ mod tests {
             string_literals: vec![],
             num_locals: 1,
         };
-        check_it(input, chunk);
+        check_it(text, chunk);
     }
 
     #[test]
     fn test17() {
-        let text = b"local i, j print j";
-        let input = lexer::lex(text).unwrap();
+        let text = "local i, j print j";
         let code = vec![
             PushNil,
             PushNil,
@@ -1391,13 +1241,12 @@ mod tests {
             string_literals: vec![],
             num_locals: 2,
         };
-        check_it(input, chunk);
+        check_it(text, chunk);
     }
 
     #[test]
     fn test18() {
-        let text = b"local i do local i print i end print i";
-        let input = lexer::lex(text).unwrap();
+        let text = "local i do local i print i end print i";
         let code = vec![
             PushNil,
             SetLocal(0),
@@ -1414,13 +1263,12 @@ mod tests {
             string_literals: vec![],
             num_locals: 2,
         };
-        check_it(input, chunk);
+        check_it(text, chunk);
     }
 
     #[test]
     fn test19() {
-        let text = b"do local i print i end print i";
-        let input = lexer::lex(text).unwrap();
+        let text = "do local i print i end print i";
         let code = vec![
             PushNil,
             SetLocal(0),
@@ -1432,16 +1280,15 @@ mod tests {
         let chunk = Chunk {
             code,
             number_literals: vec![],
-            string_literals: vec![b"i".to_vec()],
+            string_literals: vec!["i".to_string()],
             num_locals: 1,
         };
-        check_it(input, chunk);
+        check_it(text, chunk);
     }
 
     #[test]
     fn test20() {
-        let text = b"local i if false then local i else print i end";
-        let input = lexer::lex(text).unwrap();
+        let text = "local i if false then local i else print i end";
         let code = vec![
             PushNil,
             SetLocal(0),
@@ -1459,14 +1306,13 @@ mod tests {
             string_literals: vec![],
             num_locals: 2,
         };
-        check_it(input, chunk);
+        check_it(text, chunk);
     }
 
     // for i = 1,5 do print i end
     #[test]
     fn test21() {
-        let text = b"for i = 1,5 do print i end";
-        let input = lexer::lex(text).unwrap();
+        let text = "for i = 1,5 do print i end";
         let code = vec![
             PushNum(0),
             PushNum(1),
@@ -1482,68 +1328,38 @@ mod tests {
             string_literals: vec![],
             num_locals: 4,
         };
-        check_it(input, chunk);
+        check_it(text, chunk);
     }
 
     #[test]
     fn test22() {
-        let text = b"a, b = 1";
-        let tokens = vec![
-            TOK(Identifier, 0, 1),
-            TOK(Comma, 1, 1),
-            TOK(Identifier, 3, 1),
-            TOK(TokenType::Assign, 5, 1),
-            TOK(LiteralNumber, 7, 1),
-        ];
-        let tl = TokenList { text, tokens };
+        let text = "a, b = 1";
         let code = vec![PushNum(0), PushNil, SetGlobal(1), SetGlobal(0)];
         let chunk = Chunk {
             code,
             number_literals: vec![1.0],
-            string_literals: vec![b"a".to_vec(), b"b".to_vec()],
+            string_literals: vec!["a".to_string(), "b".to_string()],
             num_locals: 0,
         };
-        check_it(tl, chunk);
+        check_it(text, chunk);
     }
 
     #[test]
     fn test23() {
-        let text = b"a, b = 1, 2";
-        let tokens = vec![
-            TOK(Identifier, 0, 1),
-            TOK(Comma, 1, 1),
-            TOK(Identifier, 3, 1),
-            TOK(TokenType::Assign, 5, 1),
-            TOK(LiteralNumber, 7, 1),
-            TOK(Comma, 8, 1),
-            TOK(LiteralNumber, 10, 1),
-        ];
-        let tl = TokenList { text, tokens };
+        let text = "a, b = 1, 2";
         let code = vec![PushNum(0), PushNum(1), SetGlobal(1), SetGlobal(0)];
         let chunk = Chunk {
             code,
             number_literals: vec![1.0, 2.0],
-            string_literals: vec![b"a".to_vec(), b"b".to_vec()],
+            string_literals: vec!["a".to_string(), "b".to_string()],
             num_locals: 0,
         };
-        check_it(tl, chunk);
+        check_it(text, chunk);
     }
 
     #[test]
     fn test24() {
-        let text = b"a, b = 1, 2, 3";
-        let tokens = vec![
-            TOK(Identifier, 0, 1),
-            TOK(Comma, 1, 1),
-            TOK(Identifier, 3, 1),
-            TOK(TokenType::Assign, 5, 1),
-            TOK(LiteralNumber, 7, 1),
-            TOK(Comma, 8, 1),
-            TOK(LiteralNumber, 10, 1),
-            TOK(Comma, 11, 1),
-            TOK(LiteralNumber, 13, 1),
-        ];
-        let tl = TokenList { text, tokens };
+        let text = "a, b = 1, 2, 3";
         let code = vec![
             PushNum(0),
             PushNum(1),
@@ -1555,71 +1371,48 @@ mod tests {
         let chunk = Chunk {
             code,
             number_literals: vec![1.0, 2.0, 3.0],
-            string_literals: vec![b"a".to_vec(), b"b".to_vec()],
+            string_literals: vec!["a".to_string(), "b".to_string()],
             num_locals: 0,
         };
-        check_it(tl, chunk);
+        check_it(text, chunk);
     }
 
     #[test]
     fn test25() {
-        let text = b"puts()";
-        let tokens = vec![TOK(Identifier, 0, 4), TOK(LParen, 4, 1), TOK(RParen, 5, 1)];
-        let tl = TokenList { text, tokens };
+        let text = "puts()";
         let code = vec![GetGlobal(0), Call(0)];
         let chunk = Chunk {
             code,
             number_literals: vec![],
-            string_literals: vec![b"puts".to_vec()],
+            string_literals: vec!["puts".to_string()],
             num_locals: 0,
         };
-        check_it(tl, chunk);
+        check_it(text, chunk);
     }
 
     #[test]
     fn test26() {
-        let text = b"print {x = 5,}";
-        let tokens = vec![
-            TOK(TokenType::Print, 0, 5),
-            TOK(LCurly, 6, 1),
-            TOK(Identifier, 7, 1),
-            TOK(TokenType::Assign, 9, 1),
-            TOK(LiteralNumber, 11, 1),
-            TOK(Comma, 12, 1),
-            TOK(RCurly, 13, 1),
-        ];
-        let tl = TokenList { text, tokens };
+        let text = "print {x = 5,}";
         let code = vec![NewTable, PushNum(0), SetField(0), Instr::Print];
         let chunk = Chunk {
             code,
             number_literals: vec![5.0],
-            string_literals: vec![b"x".to_vec()],
+            string_literals: vec!["x".to_string()],
             num_locals: 0,
         };
-        check_it(tl, chunk);
+        check_it(text, chunk);
     }
 
     #[test]
     fn test27() {
-        let text = b"print t.x.y";
-        let input = lexer::lex(text).unwrap();
+        let text = "print t.x.y";
         let code = vec![GetGlobal(0), GetField(1), GetField(2), Instr::Print];
         let chunk = Chunk {
             code,
             number_literals: vec![],
-            string_literals: vec![b"t".to_vec(), b"x".to_vec(), b"y".to_vec()],
+            string_literals: vec!["t".to_string(), "x".to_string(), "y".to_string()],
             num_locals: 0,
         };
-        check_it(input, chunk);
-    }
-
-    #[test]
-    fn test28() {
-        let text = b"x";
-        let input = lexer::lex(text).unwrap();
-        assert_eq!(
-            parse_chunk(input),
-            Err(ParseError::Expect(TokenType::Assign))
-        );
+        check_it(text, chunk);
     }
 }

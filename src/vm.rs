@@ -2,14 +2,15 @@
 //! components of the VM.
 
 use std::collections::HashMap;
-use std::io::{self, Write};
 use std::ops::{Add, Div, Mul, Rem, Sub};
 use std::rc::Rc;
 use std::result;
 
-use crate::LuaVal::*;
-use crate::{lexer, lua_std, parser};
-use crate::{Chunk, Instr, LuaVal};
+use crate::lua_std;
+use crate::parser;
+use crate::Chunk;
+use crate::Instr;
+use crate::LuaVal::{self, *};
 
 #[derive(Debug)]
 pub enum EvalError {
@@ -25,7 +26,7 @@ type Result<T> = result::Result<T, EvalError>;
 
 #[derive(Default)]
 pub struct State {
-    pub globals: HashMap<Vec<u8>, LuaVal>,
+    pub globals: HashMap<String, LuaVal>,
     // This field is only used by external functions.
     pub locals: Vec<LuaVal>,
 }
@@ -37,9 +38,8 @@ impl State {
         me
     }
 
-    pub fn loadstring(&mut self, s: &[u8]) {
-        let tokens = lexer::lex(s).unwrap();
-        let chunk = parser::parse_chunk(tokens).unwrap();
+    pub fn loadstring(&mut self, source: &str) {
+        let chunk = parser::parse_str(source).unwrap();
         self.eval_chunk(chunk).unwrap();
     }
 
@@ -82,6 +82,7 @@ impl State {
                 }
 
                 Instr::Call(num_args) => {
+                    dbg!(&stack);
                     self.locals = stack.split_off(stack.len() - num_args as usize);
                     let func = stack.pop().unwrap();
                     if let RustFn(f) = func {
@@ -213,6 +214,7 @@ impl State {
                     if let Tbl(t) = t {
                         let key = LuaString(Rc::new(get_string(&chunk, i as usize)));
                         t.borrow_mut().insert(key, v)?;
+                        stack.push(Tbl(t));
                     } else {
                         return Err(EvalError::SingleTypeError(instr, t));
                     }
@@ -242,17 +244,7 @@ impl State {
 
                 Instr::Print => {
                     let e = stack.pop().unwrap();
-                    match e {
-                        LuaString(s) => {
-                            let mut stdout = io::stdout();
-                            let bytes = s.as_slice();
-                            // We don't care if the printing fails.
-                            let _ = stdout.write(bytes);
-                            let _ = stdout.write(b"\n");
-                            let _ = stdout.flush();
-                        }
-                        _ => println!("{}", e),
-                    }
+                    println!("{}", e);
                 }
 
                 _ => panic!("We don't support {:?} yet.", instr),
@@ -263,7 +255,7 @@ impl State {
     }
 }
 
-fn get_string(chunk: &Chunk, i: usize) -> Vec<u8> {
+fn get_string(chunk: &Chunk, i: usize) -> String {
     chunk.string_literals[i].clone()
 }
 
@@ -271,8 +263,8 @@ fn attempt_concat(stack: &mut Vec<LuaVal>) -> Result<()> {
     let v2 = stack.pop().unwrap();
     let v1 = stack.pop().unwrap();
     if let (LuaString(s1), LuaString(s2)) = (&v1, &v2) {
-        let mut new_string = Vec::clone(s1);
-        new_string.extend_from_slice(&s2[..]);
+        let mut new_string = String::clone(s1);
+        new_string += s2;
         stack.push(LuaString(Rc::new(new_string)));
         return Ok(());
     }
@@ -328,11 +320,11 @@ mod tests {
         let input = Chunk {
             code: vec![PushNum(0), SetGlobal(0)],
             number_literals: vec![1.0],
-            string_literals: vec![b"a".to_vec()],
+            string_literals: vec!["a".to_string()],
             num_locals: 0,
         };
         state.eval_chunk(input).unwrap();
-        assert_eq!(Number(1.0), *state.globals.get(&b"a".to_vec()).unwrap());
+        assert_eq!(Number(1.0), *state.globals.get("a").unwrap());
     }
 
     #[test]
@@ -341,14 +333,13 @@ mod tests {
         let input = Chunk {
             code: vec![PushString(1), PushString(2), Concat, SetGlobal(0)],
             number_literals: vec![],
-            //string_literals: vec![],
-            string_literals: vec![b"key".to_vec(), b"a".to_vec(), b"b".to_vec()],
+            string_literals: vec!["key".to_string(), "a".to_string(), "b".to_string()],
             num_locals: 0,
         };
         state.eval_chunk(input).unwrap();
         assert_eq!(
-            LuaString(Rc::new(b"ab".to_vec())),
-            *state.globals.get(&b"key".to_vec()).unwrap()
+            LuaString(Rc::new("ab".to_string())),
+            *state.globals.get("key").unwrap()
         );
     }
 
@@ -358,11 +349,11 @@ mod tests {
         let input = Chunk {
             code: vec![PushNum(0), PushNum(0), Equal, SetGlobal(0)],
             number_literals: vec![2.5],
-            string_literals: vec![b"a".to_vec()],
+            string_literals: vec!["a".to_string()],
             num_locals: 0,
         };
         state.eval_chunk(input).unwrap();
-        assert_eq!(Bool(true), *state.globals.get(&b"a".to_vec()).unwrap());
+        assert_eq!(Bool(true), *state.globals.get("a").unwrap());
     }
 
     #[test]
@@ -377,11 +368,11 @@ mod tests {
                 SetGlobal(0),
             ],
             number_literals: vec![],
-            string_literals: vec![b"key".to_vec()],
+            string_literals: vec!["key".to_string()],
             num_locals: 0,
         };
         state.eval_chunk(input).unwrap();
-        assert_eq!(Bool(false), *state.globals.get(&b"key".to_vec()).unwrap());
+        assert_eq!(Bool(false), *state.globals.get("key").unwrap());
     }
 
     #[test]
@@ -391,11 +382,11 @@ mod tests {
         let chunk = Chunk {
             code,
             number_literals: vec![5.0],
-            string_literals: vec![b"a".to_vec()],
+            string_literals: vec!["a".to_string()],
             num_locals: 0,
         };
         state.eval_chunk(chunk).unwrap();
-        assert_eq!(Number(5.0), *state.globals.get(&b"a".to_vec()).unwrap());
+        assert_eq!(Number(5.0), *state.globals.get("a").unwrap());
     }
 
     #[test]
@@ -412,11 +403,11 @@ mod tests {
         let chunk = Chunk {
             code,
             number_literals: vec![2.0],
-            string_literals: vec![b"a".to_vec()],
+            string_literals: vec!["a".to_string()],
             num_locals: 0,
         };
         state.eval_chunk(chunk).unwrap();
-        assert!(state.globals.get(&b"a".to_vec()).is_none());
+        assert!(state.globals.get("a").is_none());
     }
 
     #[test]
@@ -437,7 +428,7 @@ mod tests {
         let chunk = Chunk {
             code,
             number_literals: vec![1.0, 10.0, 0.0],
-            string_literals: vec![b"a".to_vec()],
+            string_literals: vec!["a".to_string()],
             num_locals: 0,
         };
         let mut state = State::new();
@@ -464,11 +455,11 @@ mod tests {
         let chunk = Chunk {
             code,
             number_literals: vec![1.0, 10.0, 1.0],
-            string_literals: vec![b"x".to_vec()],
+            string_literals: vec!["x".to_string()],
             num_locals: 1,
         };
         let mut state = State::new();
         state.eval_chunk(chunk).unwrap();
-        assert_eq!(Number(10.0), *state.globals.get(&b"x".to_vec()).unwrap());
+        assert_eq!(Number(10.0), *state.globals.get("x").unwrap());
     }
 }

@@ -4,7 +4,7 @@ use crate::{LuaVal, State};
 
 pub fn init(state: &mut State) {
     let globals = &mut state.globals;
-    globals.insert(b"puts".to_vec(), LuaVal::RustFn(print));
+    globals.insert("puts".to_string(), LuaVal::RustFn(print));
 }
 
 fn print(state: &mut State) -> u8 {

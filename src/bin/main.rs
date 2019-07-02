@@ -33,6 +33,6 @@ fn run_prompt() {
             break;
         }
 
-        state.loadstring(buf.as_bytes());
+        state.loadstring(&buf);
     }
 }

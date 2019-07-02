@@ -12,7 +12,7 @@ pub enum LuaVal {
     Nil,
     Bool(bool),
     Number(f64),
-    LuaString(Rc<Vec<u8>>),
+    LuaString(Rc<String>),
     RustFn(RustFunc),
     Tbl(Rc<RefCell<Table>>),
 }
