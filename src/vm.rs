@@ -82,14 +82,13 @@ impl State {
                 }
 
                 Instr::Call(num_args) => {
-                    dbg!(&stack);
                     self.locals = stack.split_off(stack.len() - num_args as usize);
                     let func = stack.pop().unwrap();
                     if let RustFn(f) = func {
                         f(self);
                         stack.push(Nil);
                     } else {
-                        return Err(EvalError::Other);
+                        return Err(EvalError::SingleTypeError(instr, func));
                     }
                 }
 
