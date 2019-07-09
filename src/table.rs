@@ -1,4 +1,6 @@
-use crate::{EvalError, LuaVal};
+use crate::object::Markable;
+use crate::EvalError;
+use crate::LuaVal;
 
 use std::collections::HashMap;
 
@@ -24,6 +26,15 @@ impl Table {
                 self.map.insert(key, value);
                 Ok(())
             }
+        }
+    }
+}
+
+impl Markable for Table {
+    fn mark_reachable(&self) {
+        for (k, v) in &self.map {
+            k.mark_reachable();
+            v.mark_reachable();
         }
     }
 }

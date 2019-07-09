@@ -7,10 +7,13 @@ use std::rc::Rc;
 use std::result;
 
 use crate::lua_std;
+use crate::object::RawObject;
 use crate::parser;
 use crate::Chunk;
+use crate::GcHeap;
 use crate::Instr;
 use crate::LuaVal::{self, *};
+use crate::Table;
 
 #[derive(Debug)]
 pub enum EvalError {
@@ -29,6 +32,7 @@ pub struct State {
     pub globals: HashMap<String, LuaVal>,
     // This field is only used by external functions.
     pub locals: Vec<LuaVal>,
+    heap: GcHeap,
 }
 
 impl State {
@@ -194,13 +198,17 @@ impl State {
                     stack.push(Bool(!e.truthy()));
                 }
 
-                Instr::NewTable => stack.push(LuaVal::new_table()),
+                Instr::NewTable => {
+                    let obj_ptr = self.heap.new_table();
+                    let val = LuaVal::Obj(obj_ptr);
+                    stack.push(val);
+                }
 
                 Instr::GetField(i) => {
-                    let t = stack.pop().unwrap();
-                    if let Tbl(t) = t {
+                    let mut t = stack.pop().unwrap();
+                    if let Some(t) = as_table(&mut t) {
                         let key = LuaString(Rc::new(get_string(&chunk, i as usize)));
-                        let val = t.borrow().get(&key);
+                        let val = t.get(&key);
                         stack.push(val.clone());
                     } else {
                         return Err(EvalError::SingleTypeError(instr, t));
@@ -209,11 +217,10 @@ impl State {
 
                 Instr::SetField(i) => {
                     let v = stack.pop().unwrap();
-                    let t = stack.pop().unwrap();
-                    if let Tbl(t) = t {
+                    let mut t = stack.pop().unwrap();
+                    if let Some(t) = as_table(&mut t) {
                         let key = LuaString(Rc::new(get_string(&chunk, i as usize)));
-                        t.borrow_mut().insert(key, v)?;
-                        stack.push(Tbl(t));
+                        t.insert(key, v)?;
                     } else {
                         return Err(EvalError::SingleTypeError(instr, t));
                     }
@@ -221,9 +228,9 @@ impl State {
 
                 Instr::GetTable => {
                     let key = stack.pop().unwrap();
-                    let t = stack.pop().unwrap();
-                    if let Tbl(table) = t {
-                        let val = table.borrow().get(&key);
+                    let mut t = stack.pop().unwrap();
+                    if let Some(t) = as_table(&mut t) {
+                        let val = t.get(&key);
                         stack.push(val.clone());
                     } else {
                         return Err(EvalError::SingleTypeError(instr, t));
@@ -233,9 +240,9 @@ impl State {
                 Instr::SetTable => {
                     let val = stack.pop().unwrap();
                     let key = stack.pop().unwrap();
-                    let t = stack.pop().unwrap();
-                    if let Tbl(t) = t {
-                        t.borrow_mut().insert(key, val)?;
+                    let mut t = stack.pop().unwrap();
+                    if let Some(t) = as_table(&mut t) {
+                        t.insert(key, val)?;
                     } else {
                         return Err(EvalError::SingleTypeError(instr, t));
                     }
@@ -306,6 +313,15 @@ where
 
     // This has to be outside the `if let` to avoid borrow issues.
     Err(EvalError::DoubleTypeError(instr, v1, v2))
+}
+
+fn as_table(val: &mut LuaVal) -> Option<&mut Table> {
+    match val {
+        LuaVal::Obj(o) => match &mut o.raw {
+            RawObject::Table(t) => Some(t),
+        }
+        _ => None,
+    }
 }
 
 #[cfg(test)]
