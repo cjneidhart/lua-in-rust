@@ -1,10 +1,11 @@
 //! Lua's Standard Library
 
-use crate::{LuaVal, State};
+use crate::State;
+use crate::Val;
 
 pub fn init(state: &mut State) {
     let globals = &mut state.globals;
-    globals.insert("puts".to_string(), LuaVal::RustFn(print));
+    globals.insert("puts".to_string(), Val::RustFn(print));
 }
 
 fn print(state: &mut State) -> u8 {

@@ -1,27 +1,29 @@
 use crate::object::Markable;
-use crate::EvalError;
-use crate::LuaVal;
+use crate::Error;
+use crate::ErrorKind;
+use crate::Result;
+use crate::Val;
 
 use std::collections::HashMap;
 
 #[derive(Clone, Debug, Default)]
 pub struct Table {
-    map: HashMap<LuaVal, LuaVal>,
+    map: HashMap<Val, Val>,
 }
 
 impl Table {
-    pub fn get(&self, key: &LuaVal) -> LuaVal {
+    pub fn get(&self, key: &Val) -> Val {
         match key {
-            LuaVal::Nil => LuaVal::Nil,
-            LuaVal::Number(n) if n.is_nan() => LuaVal::Nil,
+            Val::Nil => Val::Nil,
+            Val::Num(n) if n.is_nan() => Val::Nil,
             _ => self.map.get(key).cloned().unwrap_or_default(),
         }
     }
 
-    pub fn insert(&mut self, key: LuaVal, value: LuaVal) -> Result<(), EvalError> {
+    pub fn insert(&mut self, key: Val, value: Val) -> Result<()> {
         match key {
-            LuaVal::Nil => Err(EvalError::TableKeyNil),
-            LuaVal::Number(n) if n.is_nan() => Err(EvalError::TableKeyNan),
+            Val::Nil => Err(Error::new(ErrorKind::TableKeyNil)),
+            Val::Num(n) if n.is_nan() => Err(Error::new(ErrorKind::TableKeyNil)),
             _ => {
                 self.map.insert(key, value);
                 Ok(())

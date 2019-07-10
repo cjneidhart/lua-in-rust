@@ -4,34 +4,24 @@
 use std::collections::HashMap;
 use std::ops::{Add, Div, Mul, Rem, Sub};
 use std::rc::Rc;
-use std::result;
 
 use crate::lua_std;
 use crate::object::RawObject;
 use crate::parser;
 use crate::Chunk;
+use crate::Error;
+use crate::ErrorKind;
 use crate::GcHeap;
 use crate::Instr;
-use crate::LuaVal::{self, *};
+use crate::Result;
 use crate::Table;
-
-#[derive(Debug)]
-pub enum EvalError {
-    TableKeyNan,
-    TableKeyNil,
-    StackError,
-    SingleTypeError(Instr, LuaVal),
-    DoubleTypeError(Instr, LuaVal, LuaVal),
-    Other,
-}
-
-type Result<T> = result::Result<T, EvalError>;
+use crate::Val;
 
 #[derive(Default)]
 pub struct State {
-    pub globals: HashMap<String, LuaVal>,
+    pub globals: HashMap<String, Val>,
     // This field is only used by external functions.
-    pub locals: Vec<LuaVal>,
+    pub locals: Vec<Val>,
     heap: GcHeap,
 }
 
@@ -42,15 +32,15 @@ impl State {
         me
     }
 
-    pub fn loadstring(&mut self, source: &str) {
-        let chunk = parser::parse_str(source).unwrap();
-        self.eval_chunk(chunk).unwrap();
+    pub fn loadstring(&mut self, source: &str) -> Result<()> {
+        let chunk = parser::parse_str(source)?;
+        self.eval_chunk(chunk)
     }
 
     pub fn eval_chunk(&mut self, chunk: Chunk) -> Result<()> {
         let mut stack = Vec::new();
         for _ in 0..chunk.num_locals {
-            stack.push(Nil);
+            stack.push(Val::Nil);
         }
 
         let len = chunk.code.len();
@@ -88,11 +78,11 @@ impl State {
                 Instr::Call(num_args) => {
                     self.locals = stack.split_off(stack.len() - num_args as usize);
                     let func = stack.pop().unwrap();
-                    if let RustFn(f) = func {
+                    if let Val::RustFn(f) = func {
                         f(self);
-                        stack.push(Nil);
+                        stack.push(Val::Nil);
                     } else {
-                        return Err(EvalError::SingleTypeError(instr, func));
+                        return Err(Error::new(ErrorKind::TypeError));
                     }
                 }
 
@@ -103,7 +93,7 @@ impl State {
                     let name = &chunk.string_literals[i as usize];
                     let val = match self.globals.get(name) {
                         Some(val) => val.clone(),
-                        None => Nil,
+                        None => Val::Nil,
                     };
                     stack.push(val);
                 }
@@ -129,15 +119,18 @@ impl State {
                         &stack[local_slot + 1],
                         &stack[local_slot + 2],
                     ) {
-                        (Number(current_ref), Number(stop), Number(step)) => {
+                        (Val::Num(current_ref), Val::Num(stop), Val::Num(step)) => {
                             let current = *current_ref + step;
                             if (*step > 0.0 && current <= *stop)
                                 || (*step <= 0.0 && current >= *stop)
                             {
-                                next_val = Some(Number(current));
+                                next_val = Some(Val::Num(current));
                             }
                         }
-                        _ => return Err(EvalError::Other),
+                        _ => {
+                            eprintln!("for loop's locals weren't numbers");
+                            std::process::exit(1);
+                        }
                     }
                     if let Some(x) = next_val {
                         stack[local_slot] = x.clone();
@@ -147,11 +140,11 @@ impl State {
                 }
 
                 // Literals
-                Instr::PushNil => stack.push(Nil),
-                Instr::PushBool(b) => stack.push(Bool(b)),
-                Instr::PushNum(i) => stack.push(Number(chunk.number_literals[i as usize])),
+                Instr::PushNil => stack.push(Val::Nil),
+                Instr::PushBool(b) => stack.push(Val::Bool(b)),
+                Instr::PushNum(i) => stack.push(Val::Num(chunk.number_literals[i as usize])),
                 Instr::PushString(i) => {
-                    let val = LuaString(Rc::new(get_string(&chunk, i as usize)));
+                    let val = Val::Str(Rc::new(get_string(&chunk, i as usize)));
                     stack.push(val);
                 }
 
@@ -167,12 +160,12 @@ impl State {
                 Instr::Equal => {
                     let e2 = stack.pop().unwrap();
                     let e1 = stack.pop().unwrap();
-                    stack.push(Bool(e1 == e2));
+                    stack.push(Val::Bool(e1 == e2));
                 }
                 Instr::NotEqual => {
                     let e2 = stack.pop().unwrap();
                     let e1 = stack.pop().unwrap();
-                    stack.push(Bool(e1 != e2));
+                    stack.push(Val::Bool(e1 != e2));
                 }
 
                 // Order comparison
@@ -187,31 +180,31 @@ impl State {
                 // Unary
                 Instr::Negate => {
                     let e = stack.pop().unwrap();
-                    if let Number(n) = e {
-                        stack.push(Number(-n));
+                    if let Val::Num(n) = e {
+                        stack.push(Val::Num(-n));
                     } else {
-                        return Err(EvalError::SingleTypeError(instr, e));
+                        return Err(Error::new(ErrorKind::TypeError));
                     }
                 }
                 Instr::Not => {
                     let e = stack.pop().unwrap();
-                    stack.push(Bool(!e.truthy()));
+                    stack.push(Val::Bool(!e.truthy()));
                 }
 
                 Instr::NewTable => {
                     let obj_ptr = self.heap.new_table();
-                    let val = LuaVal::Obj(obj_ptr);
+                    let val = Val::Obj(obj_ptr);
                     stack.push(val);
                 }
 
                 Instr::GetField(i) => {
                     let mut t = stack.pop().unwrap();
                     if let Some(t) = as_table(&mut t) {
-                        let key = LuaString(Rc::new(get_string(&chunk, i as usize)));
+                        let key = Val::Str(Rc::new(get_string(&chunk, i as usize)));
                         let val = t.get(&key);
                         stack.push(val.clone());
                     } else {
-                        return Err(EvalError::SingleTypeError(instr, t));
+                        return Err(Error::new(ErrorKind::TypeError));
                     }
                 }
 
@@ -219,10 +212,10 @@ impl State {
                     let v = stack.pop().unwrap();
                     let mut t = stack.pop().unwrap();
                     if let Some(t) = as_table(&mut t) {
-                        let key = LuaString(Rc::new(get_string(&chunk, i as usize)));
+                        let key = Val::Str(Rc::new(get_string(&chunk, i as usize)));
                         t.insert(key, v)?;
                     } else {
-                        return Err(EvalError::SingleTypeError(instr, t));
+                        return Err(Error::new(ErrorKind::TypeError));
                     }
                 }
 
@@ -233,7 +226,7 @@ impl State {
                         let val = t.get(&key);
                         stack.push(val.clone());
                     } else {
-                        return Err(EvalError::SingleTypeError(instr, t));
+                        return Err(Error::new(ErrorKind::TypeError));
                     }
                 }
 
@@ -244,7 +237,7 @@ impl State {
                     if let Some(t) = as_table(&mut t) {
                         t.insert(key, val)?;
                     } else {
-                        return Err(EvalError::SingleTypeError(instr, t));
+                        return Err(Error::new(ErrorKind::TypeError));
                     }
                 }
 
@@ -265,61 +258,61 @@ fn get_string(chunk: &Chunk, i: usize) -> String {
     chunk.string_literals[i].clone()
 }
 
-fn attempt_concat(stack: &mut Vec<LuaVal>) -> Result<()> {
+fn attempt_concat(stack: &mut Vec<Val>) -> Result<()> {
     let v2 = stack.pop().unwrap();
     let v1 = stack.pop().unwrap();
-    if let (LuaString(s1), LuaString(s2)) = (&v1, &v2) {
+    if let (Val::Str(s1), Val::Str(s2)) = (&v1, &v2) {
         let mut new_string = String::clone(s1);
         new_string += s2;
-        stack.push(LuaString(Rc::new(new_string)));
+        stack.push(Val::Str(Rc::new(new_string)));
         return Ok(());
     }
 
-    Err(EvalError::DoubleTypeError(Instr::Concat, v1, v2))
+    Err(Error::new(ErrorKind::TypeError))
 }
 
 /// Evaluate a function of 2 floats which returns a bool.
 ///
 /// Take 2 values from the stack, pass them to `f`, and push the returned value
 /// onto the stack. Returns an `EvalError` if anything goes wrong.
-fn eval_float_bool<F>(f: F, instr: Instr, stack: &mut Vec<LuaVal>) -> Result<()>
+fn eval_float_bool<F>(f: F, _instr: Instr, stack: &mut Vec<Val>) -> Result<()>
 where
     F: FnOnce(&f64, &f64) -> bool,
 {
     let v2 = stack.pop().unwrap();
     let v1 = stack.pop().unwrap();
-    if let (Number(n1), Number(n2)) = (&v1, &v2) {
-        stack.push(Bool(f(n1, n2)));
+    if let (Val::Num(n1), Val::Num(n2)) = (&v1, &v2) {
+        stack.push(Val::Bool(f(n1, n2)));
         return Ok(());
     }
 
-    Err(EvalError::DoubleTypeError(instr, v1, v2))
+    Err(Error::new(ErrorKind::TypeError))
 }
 
 /// Evaluate a function of 2 floats which returns a float.
 ///
 /// Take 2 values from the stack, pass them to `f`, and push the returned value
 /// onto the stack. Returns an `EvalError` if anything goes wrong.
-fn eval_float_float<F>(f: F, instr: Instr, stack: &mut Vec<LuaVal>) -> Result<()>
+fn eval_float_float<F>(f: F, _instr: Instr, stack: &mut Vec<Val>) -> Result<()>
 where
     F: FnOnce(f64, f64) -> f64,
 {
     let v2 = stack.pop().unwrap();
     let v1 = stack.pop().unwrap();
-    if let (&Number(n1), &Number(n2)) = (&v1, &v2) {
-        stack.push(Number(f(n1, n2)));
+    if let (&Val::Num(n1), &Val::Num(n2)) = (&v1, &v2) {
+        stack.push(Val::Num(f(n1, n2)));
         return Ok(());
     }
 
     // This has to be outside the `if let` to avoid borrow issues.
-    Err(EvalError::DoubleTypeError(instr, v1, v2))
+    Err(Error::new(ErrorKind::TypeError))
 }
 
-fn as_table(val: &mut LuaVal) -> Option<&mut Table> {
+fn as_table(val: &mut Val) -> Option<&mut Table> {
     match val {
-        LuaVal::Obj(o) => match &mut o.raw {
+        Val::Obj(o) => match &mut o.raw {
             RawObject::Table(t) => Some(t),
-        }
+        },
         _ => None,
     }
 }
@@ -339,7 +332,7 @@ mod tests {
             num_locals: 0,
         };
         state.eval_chunk(input).unwrap();
-        assert_eq!(Number(1.0), *state.globals.get("a").unwrap());
+        assert_eq!(Val::Num(1.0), *state.globals.get("a").unwrap());
     }
 
     #[test]
@@ -353,7 +346,7 @@ mod tests {
         };
         state.eval_chunk(input).unwrap();
         assert_eq!(
-            LuaString(Rc::new("ab".to_string())),
+            Val::Str(Rc::new("ab".to_string())),
             *state.globals.get("key").unwrap()
         );
     }
@@ -368,7 +361,7 @@ mod tests {
             num_locals: 0,
         };
         state.eval_chunk(input).unwrap();
-        assert_eq!(Bool(true), *state.globals.get("a").unwrap());
+        assert_eq!(Val::Bool(true), *state.globals.get("a").unwrap());
     }
 
     #[test]
@@ -387,7 +380,7 @@ mod tests {
             num_locals: 0,
         };
         state.eval_chunk(input).unwrap();
-        assert_eq!(Bool(false), *state.globals.get("key").unwrap());
+        assert_eq!(Val::Bool(false), *state.globals.get("key").unwrap());
     }
 
     #[test]
@@ -401,7 +394,7 @@ mod tests {
             num_locals: 0,
         };
         state.eval_chunk(chunk).unwrap();
-        assert_eq!(Number(5.0), *state.globals.get("a").unwrap());
+        assert_eq!(Val::Num(5.0), *state.globals.get("a").unwrap());
     }
 
     #[test]
@@ -475,6 +468,6 @@ mod tests {
         };
         let mut state = State::new();
         state.eval_chunk(chunk).unwrap();
-        assert_eq!(Number(10.0), *state.globals.get("x").unwrap());
+        assert_eq!(Val::Num(10.0), *state.globals.get("x").unwrap());
     }
 }

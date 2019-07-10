@@ -9,17 +9,17 @@ use crate::State;
 type RustFunc = fn(&mut State) -> u8;
 
 #[derive(Clone)]
-pub enum LuaVal {
+pub enum Val {
     Nil,
     Bool(bool),
-    Number(f64),
-    LuaString(Rc<String>),
+    Num(f64),
+    Str(Rc<String>),
     RustFn(RustFunc),
     Obj(ObjectPtr),
 }
-use LuaVal::*;
+use Val::*;
 
-impl LuaVal {
+impl Val {
     pub fn truthy(&self) -> bool {
         match self {
             Nil | Bool(false) => false,
@@ -31,55 +31,55 @@ impl LuaVal {
         match self {
             Nil => "nil",
             Bool(_) => "boolean",
-            Number(_) => "number",
-            LuaString(_) => "string",
+            Num(_) => "Num",
+            Str(_) => "string",
             RustFn(_) => "function",
             Obj(o) => o.raw.type_string(),
         }
     }
 }
 
-impl Debug for LuaVal {
+impl Debug for Val {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
             Nil => write!(f, "nil"),
             Bool(b) => Debug::fmt(b, f),
-            Number(n) => Debug::fmt(n, f),
-            LuaString(s) => Debug::fmt(s, f),
+            Num(n) => Debug::fmt(n, f),
+            Str(s) => Debug::fmt(s, f),
             RustFn(func) => write!(f, "<function: {:p}>", func),
             Obj(o) => Debug::fmt(o, f),
         }
     }
 }
 
-impl Default for LuaVal {
+impl Default for Val {
     fn default() -> Self {
         Nil
     }
 }
 
-impl Display for LuaVal {
+impl Display for Val {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
             Nil => write!(f, "nil"),
             Bool(b) => Display::fmt(b, f),
-            Number(n) => Display::fmt(n, f),
+            Num(n) => Display::fmt(n, f),
             _ => write!(f, "{:#?}", self),
         }
     }
 }
 
 /// This is very dangerous, since f64 doesn't implement Eq.
-impl Eq for LuaVal {}
+impl Eq for Val {}
 
-impl Hash for LuaVal {
+impl Hash for Val {
     fn hash<H: Hasher>(&self, hasher: &mut H) {
         match self {
             Nil => (),
             Bool(b) => b.hash(hasher),
-            LuaString(s) => s.hash(hasher),
+            Str(s) => s.hash(hasher),
             Obj(o) => o.hash(hasher),
-            Number(n) => {
+            Num(n) => {
                 debug_assert!(!n.is_nan(), "Can't hash NaN");
                 let mut bits = n.to_bits();
                 if bits == 1 << 63 {
@@ -95,13 +95,13 @@ impl Hash for LuaVal {
     }
 }
 
-impl PartialEq for LuaVal {
-    fn eq(&self, other: &LuaVal) -> bool {
+impl PartialEq for Val {
+    fn eq(&self, other: &Val) -> bool {
         match (self, other) {
             (Nil, Nil) => true,
             (Bool(a), Bool(b)) => a == b,
-            (Number(a), Number(b)) => a == b,
-            (LuaString(a), LuaString(b)) => a == b,
+            (Num(a), Num(b)) => a == b,
+            (Str(a), Str(b)) => a == b,
             (RustFn(a), RustFn(b)) => {
                 let x = a as *const RustFunc;
                 let y = b as *const RustFunc;
@@ -113,7 +113,7 @@ impl PartialEq for LuaVal {
     }
 }
 
-impl Markable for LuaVal {
+impl Markable for Val {
     fn mark_reachable(&self) {
         if let Obj(o) = self {
             o.mark_reachable();

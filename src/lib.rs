@@ -11,19 +11,18 @@ mod vm;
 
 use error::{Error, ErrorKind};
 use instr::Instr;
-use lua_val::LuaVal;
+use lua_val::Val;
 use object::{GcHeap, ObjectPtr};
 use parser::Chunk;
 use table::Table;
 use token::{Token, TokenType};
-use vm::EvalError;
 
 pub use vm::State;
 
 pub type Result<T> = std::result::Result<T, Error>;
 
-pub fn run_string(source: &str) {
-    let chunk = parser::parse_str(source).unwrap();
+pub fn run_string<S: AsRef<str>>(src: S) {
+    let chunk = parser::parse_str(src.as_ref()).unwrap();
     let mut state = vm::State::new();
     state.eval_chunk(chunk).unwrap();
 }

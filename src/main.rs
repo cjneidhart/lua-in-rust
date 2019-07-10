@@ -33,6 +33,8 @@ fn run_prompt() {
             break;
         }
 
-        state.loadstring(&buf);
+        if let Err(e) = state.loadstring(&buf) {
+            println!("stdin: {}", e.get_msg());
+        }
     }
 }
