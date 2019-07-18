@@ -126,6 +126,10 @@ impl<'a> Parser<'a> {
                 num_locals: self.num_locals,
             };
 
+            if option_env!("LUA_DEBUG_PARSER").is_some() {
+                println!("Compiled chunk: {:#?}", &c);
+            }
+
             Ok(c)
         }
     }
@@ -473,7 +477,6 @@ impl<'a> Parser<'a> {
         self.nest_level += 1;
         self.parse_expr()?;
         self.expect(TokenType::Then)?;
-        dbg!(&self);
         let mut old_output = Vec::new();
         swap(&mut self.output, &mut old_output);
         self.parse_statements()?;
