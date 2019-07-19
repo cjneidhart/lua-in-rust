@@ -20,6 +20,13 @@ pub enum Val {
 use Val::*;
 
 impl Val {
+    pub fn as_num(&self) -> Option<f64> {
+        match self {
+            Num(f) => Some(*f),
+            _ => None,
+        }
+    }
+
     pub fn truthy(&self) -> bool {
         match self {
             Nil | Bool(false) => false,

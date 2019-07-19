@@ -47,6 +47,9 @@ impl State {
         let mut ip = 0isize;
         while ip < len as isize {
             let instr = chunk.code[ip as usize];
+            if option_env!("LUA_DEBUG_VM").is_some() {
+                println!("{:4}    {:?}", ip, instr);
+            }
             ip += 1;
             match instr {
                 Instr::Pop => {
@@ -103,38 +106,42 @@ impl State {
                     self.globals.insert(name, val);
                 }
 
-                Instr::ForPrep(local_slot_u8) => {
-                    let local_slot = local_slot_u8 as usize;
-                    stack[local_slot + 2] = stack.pop().unwrap();
-                    stack[local_slot + 1] = stack.pop().unwrap();
-                    let starting_val = stack.pop().unwrap();
-                    stack[local_slot + 3] = starting_val.clone();
-                    stack[local_slot] = starting_val;
+                Instr::ForPrep(local_slot, body_length) => {
+                    let step = stack.pop().unwrap();
+                    let end = stack.pop().unwrap();
+                    let start = stack.pop().unwrap();
+
+                    let (start, end, step) = get_numeric_for_initializers(start, end, step)?;
+
+                    if check_numeric_for_condition(start, end, step) {
+                        // The condition was true; set up the locals and start
+                        // the loop.
+                        let mut local_slot = local_slot as usize;
+                        for num in [start, end, step, start].iter() {
+                            stack[local_slot] = Val::Num(*num);
+                            local_slot += 1;
+                        }
+                    } else {
+                        // Skip the loop.
+                        ip += body_length;
+                    }
                 }
                 Instr::ForLoop(local_slot_u8, offset) => {
                     let local_slot = local_slot_u8 as usize;
-                    let mut next_val = None;
-                    match (
-                        &stack[local_slot],
-                        &stack[local_slot + 1],
-                        &stack[local_slot + 2],
-                    ) {
-                        (Val::Num(current_ref), Val::Num(stop), Val::Num(step)) => {
-                            let current = *current_ref + step;
-                            if (*step > 0.0 && current <= *stop)
-                                || (*step <= 0.0 && current >= *stop)
-                            {
-                                next_val = Some(Val::Num(current));
-                            }
-                        }
-                        _ => {
-                            eprintln!("for loop's locals weren't numbers");
-                            std::process::exit(1);
-                        }
-                    }
-                    if let Some(x) = next_val {
-                        stack[local_slot] = x.clone();
-                        stack[local_slot + 3] = x;
+                    let var = &stack[local_slot];
+                    let limit = &stack[local_slot + 1];
+                    let step = &stack[local_slot + 2];
+
+                    // We know these values are numbers.
+                    let limit = limit.as_num().unwrap();
+                    let step = step.as_num().unwrap();
+                    let var = var.as_num().unwrap() + step;
+
+                    if check_numeric_for_condition(var, limit, step) {
+                        let var = Val::Num(var);
+                        let usable_var = var.clone();
+                        stack[local_slot] = var;
+                        stack[local_slot + 3] = usable_var;
                         ip += offset;
                     }
                 }
@@ -317,13 +324,36 @@ fn as_table(val: &mut Val) -> Option<&mut Table> {
     }
 }
 
+/// Get all three values as numbers.
+fn get_numeric_for_initializers(start: Val, limit: Val, step: Val) -> Result<(f64, f64, f64)> {
+    match (start, limit, step) {
+        (Val::Num(start), Val::Num(limit), Val::Num(step)) => Ok((start, limit, step)),
+        // TODO: More helpful error messages.
+        _ => Err(Error::new(ErrorKind::TypeError)),
+    }
+}
+
+/// Helper to evaluate the condition of a numeric `for` loop.
+///
+/// If `step` is positive, return `var <= limit`. If `step` is not positive,
+/// return `var >= limit`.
+fn check_numeric_for_condition(var: f64, limit: f64, step: f64) -> bool {
+    if step > 0.0 {
+        var <= limit
+    } else if step <= 0.0 {
+        var >= limit
+    } else {
+        false
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::instr::Instr::*;
 
     #[test]
-    fn test1() {
+    fn vm_test01() {
         let mut state = State::new();
         let input = Chunk {
             code: vec![PushNum(0), SetGlobal(0)],
@@ -336,7 +366,7 @@ mod tests {
     }
 
     #[test]
-    fn test2() {
+    fn vm_test02() {
         let mut state = State::new();
         let input = Chunk {
             code: vec![PushString(1), PushString(2), Concat, SetGlobal(0)],
@@ -352,7 +382,7 @@ mod tests {
     }
 
     #[test]
-    fn test4() {
+    fn vm_test04() {
         let mut state = State::new();
         let input = Chunk {
             code: vec![PushNum(0), PushNum(0), Equal, SetGlobal(0)],
@@ -365,7 +395,7 @@ mod tests {
     }
 
     #[test]
-    fn test5() {
+    fn vm_test05() {
         let mut state = State::new();
         let input = Chunk {
             code: vec![
@@ -384,7 +414,7 @@ mod tests {
     }
 
     #[test]
-    fn test6() {
+    fn vm_test06() {
         let mut state = State::new();
         let code = vec![PushBool(true), BranchFalse(3), PushNum(0), SetGlobal(0)];
         let chunk = Chunk {
@@ -398,7 +428,7 @@ mod tests {
     }
 
     #[test]
-    fn test7() {
+    fn vm_test07() {
         let mut state = State::new();
         let code = vec![
             PushNum(0),
@@ -419,7 +449,7 @@ mod tests {
     }
 
     #[test]
-    fn test8() {
+    fn vm_test08() {
         let code = vec![
             PushNum(2), // a = 2
             SetGlobal(0),
@@ -444,7 +474,7 @@ mod tests {
     }
 
     #[test]
-    fn test9() {
+    fn vm_test09() {
         let code = vec![
             PushNum(0),
             SetLocal(0),
@@ -469,5 +499,44 @@ mod tests {
         let mut state = State::new();
         state.eval_chunk(chunk).unwrap();
         assert_eq!(Val::Num(10.0), *state.globals.get("x").unwrap());
+    }
+
+    #[test]
+    fn vm_test10() {
+        let code = vec![
+            // For loop control variables
+            PushNum(0), // start = 6
+            PushNum(1), // limit = 2
+            PushNum(1), // step = 2
+            // Start loop
+            ForPrep(0, 3),
+            PushNum(0),
+            SetGlobal(0), // a = 2
+            // End loop
+            ForLoop(0, -3),
+        ];
+        let chunk = Chunk {
+            code,
+            number_literals: vec![6.0, 2.0],
+            string_literals: vec!["a".to_string()],
+            num_locals: 4,
+        };
+        let mut state = State::new();
+        state.eval_chunk(chunk).unwrap();
+        assert!(state.globals.get("a").is_none());
+    }
+
+    #[test]
+    fn vm_test11() {
+        let text = "
+            a = 0
+            for i = 1, 3 do
+                a = a + i
+            end";
+        let chunk = parser::parse_str(&text).unwrap();
+        let mut state = State::new();
+        state.eval_chunk(chunk).unwrap();
+        let a = state.globals.get("a").unwrap().as_num().unwrap();
+        assert_eq!(a, 6.0);
     }
 }

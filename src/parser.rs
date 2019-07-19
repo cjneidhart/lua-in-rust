@@ -380,7 +380,7 @@ impl<'a> Parser<'a> {
     /// Parse a numeric for, starting with the first expression after the `=`.
     fn parse_numeric_for(&mut self, name: &str) -> Result<()> {
         // The start(current), stop and step are stored in three "hidden" local slots.
-        let current_index_slot = self.locals.len() as u8;
+        let current_local_slot = self.locals.len() as u8;
         self.add_local("")?;
         self.add_local("")?;
         self.add_local("")?;
@@ -406,16 +406,17 @@ impl<'a> Parser<'a> {
 
         // The ForPrep command pulls three values off the stack and places them
         // into locals to use in the loop.
-        self.push(Instr::ForPrep(current_index_slot));
+        let loop_start_instr_index = self.output.len();
+        self.push(Instr::ForPrep(current_local_slot, -1));
 
         // body
-        let old_len = self.output.len() as isize;
         self.parse_statements()?;
         self.expect(TokenType::End)?;
-        self.push(Instr::ForLoop(
-            current_index_slot,
-            old_len - self.output.len() as isize - 1,
-        ));
+        let body_length = (self.output.len() - loop_start_instr_index) as isize;
+        self.push(Instr::ForLoop(current_local_slot, -(body_length)));
+
+        // Correct the ForPrep instruction.
+        self.output[loop_start_instr_index] = Instr::ForPrep(current_local_slot, body_length);
 
         Ok(())
     }
@@ -1320,7 +1321,7 @@ mod tests {
             PushNum(0),
             PushNum(1),
             PushNum(0),
-            ForPrep(0),
+            ForPrep(0, 3),
             GetLocal(3),
             Instr::Print,
             ForLoop(0, -3),

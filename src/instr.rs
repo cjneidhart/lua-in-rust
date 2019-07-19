@@ -79,8 +79,8 @@ pub enum Instr {
     PushString(u8),
 
     /// Initializes a for loop, which will use the four local slots starting
-    /// at the given index.
-    ForPrep(u8),
+    /// at `param0`. End the loop by jumping `param1` forward.
+    ForPrep(u8, isize),
 
     /// End a for loop, using the locals starting at the first parameter to
     /// track its progress. If the loop isn't over, jump using the second
