@@ -6,7 +6,7 @@ pub struct Token {
 }
 
 #[rustfmt::skip]
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum TokenType {
     // Keywords
     And, Break, Do, Else, ElseIf, End, False, For, Function, If, In, Local,

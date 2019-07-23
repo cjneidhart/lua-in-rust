@@ -20,7 +20,9 @@ pub struct TokenStream<'a> {
 /// A `Lexer` handles the raw conversion of characters to tokens.
 #[derive(Debug)]
 pub struct Lexer<'a> {
+    /// The starting position of the next character.
     pos: usize,
+    /// `linebreaks[i]` is the byte offset of the start of line `i`.
     linebreaks: Vec<usize>,
     iter: Peekable<CharIndices<'a>>,
 }
@@ -86,9 +88,10 @@ impl<'a> TokenStream<'a> {
 
 impl<'a> Lexer<'a> {
     pub fn new(source: &'a str) -> Self {
+        let linebreaks = vec![0];
         Lexer {
             iter: source.char_indices().peekable(),
-            linebreaks: Vec::new(),
+            linebreaks,
             pos: 0,
         }
     }
@@ -143,60 +146,6 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    // fn tokenize(mut self) -> Result<TokenList<'a>> {
-    //     let mut tokens = VecDeque::new();
-    //     self.consume_whitespace();
-    //     while let Some((start, c)) = self.iter.next() {
-    //         let (num_additional_bytes, tok_type) = match c {
-    //             '+' => (0, Plus),
-    //             '-' => (0, Minus),
-    //             '*' => (0, Star),
-    //             '/' => (0, Slash),
-    //             '%' => (0, Mod),
-    //             '^' => (0, Caret),
-    //             '#' => (0, Hash),
-    //             ';' => (0, Semi),
-    //             ':' => (0, Colon),
-    //             ',' => (0, Comma),
-    //             '(' => (0, LParen),
-    //             ')' => (0, RParen),
-    //             '{' => (0, LCurly),
-    //             '}' => (0, RCurly),
-    //             ']' => (0, RSquare),
-    //             '.' => self.peek_dot()?,
-    //             '=' | '<' | '>' | '~' => self.peek_equals(c)?,
-    //             '\'' => self.lex_string(true, start)?,
-    //             '\"' => self.lex_string(false, start)?,
-    //             '[' => {
-    //                 if let Some('=') | Some('[') = self.peek() {
-    //                     panic!("Long strings are not supported yet.");
-    //                 } else {
-    //                     (0, LSquare)
-    //                 }
-    //             }
-    //             _ => {
-    //                 if c.is_ascii_digit() {
-    //                     self.lex_full_number(c)?
-    //                 } else if c.is_ascii_alphabetic() || c == '_' {
-    //                     self.lex_word()
-    //                 } else {
-    //                     return Err(LexerError::InvalidCharacter(c, self.tok_start));
-    //                 }
-    //             }
-    //         };
-    //         let tok = Token::new(tok_type, start, num_additional_bytes + 1);
-    //         tokens.push(tok);
-    //         self.consume_whitespace();
-    //     }
-
-    //     let output = TokenList {
-    //         tokens,
-    //         text: self.input,
-    //         //linebreaks: self.linebreaks,
-    //     };
-    //     Ok(output)
-    // }
-
     fn peek_char(&mut self) -> Option<char> {
         self.iter.peek().map(|(_, c)| *c)
     }
@@ -206,7 +155,7 @@ impl<'a> Lexer<'a> {
             Some((pos, c)) => {
                 self.pos = pos + c.len_utf8();
                 if c == '\n' {
-                    self.linebreaks.push(pos);
+                    self.linebreaks.push(self.pos);
                 }
                 Some(c)
             }
@@ -440,106 +389,122 @@ fn keyword_match(s: &str) -> TokenType {
 #[cfg(test)]
 mod tests {
     use super::*;
-    const TOK: fn(TokenType, usize, u32) -> Token = Token::new;
 
-    fn lex(input: &str) -> Result<Vec<Token>> {
+    fn check(input: &str, tokens: &[(TokenType, usize, u32)], lines: &[usize]) {
         let mut lexer = Lexer::new(input);
-        let mut tokens = Vec::new();
-        while let Some(tok) = lexer.next_token()? {
-            tokens.push(tok);
+        let mut tokens = tokens
+            .iter()
+            .map(|(typ, start, len)| Token::new(*typ, *start, *len));
+        while let Some(actual) = lexer.next_token().unwrap() {
+            let expected = tokens.next().unwrap();
+            assert_eq!(expected, actual);
         }
-        Ok(tokens)
+        assert!(tokens.next().is_none());
+        assert_eq!(lines, lexer.linebreaks.as_slice());
     }
 
-    fn lex_force(s: &str) -> Vec<Token> {
-        lex(s).unwrap()
-    }
-
-    #[test]
-    fn test_lexer1() {
-        let out = vec![Token {
-            typ: LiteralNumber,
-            start: 0,
-            len: 2,
-        }];
-        assert_eq!(lex_force("50"), out);
+    fn check_line(input: &str, tokens: &[(TokenType, usize, u32)]) {
+        check(input, tokens, &[0]);
     }
 
     #[test]
-    fn test_lexer2() {
-        let out = vec![
-            TOK(Identifier, 0, 2),
-            TOK(LiteralNumber, 3, 1),
-            TOK(False, 5, 5),
-        ];
-        assert_eq!(out, lex_force("hi 4 false"));
+    fn test_lexer01() {
+        let tokens = &[(LiteralNumber, 0, 2)];
+        check_line("50", tokens);
     }
 
     #[test]
-    fn test_lexer3() {
+    fn test_lexer02() {
+        let input = "hi 4 false";
+        let tokens = &[(Identifier, 0, 2), (LiteralNumber, 3, 1), (False, 5, 5)];
+        check_line(input, tokens);
+    }
+
+    #[test]
+    fn test_lexer03() {
         let input = "hi5";
-        let out = vec![TOK(Identifier, 0, 3)];
-        assert_eq!(lex_force(input), out);
+        let tokens = &[(Identifier, 0, 3)];
+        check_line(input, tokens);
     }
 
     #[test]
-    fn test_lexer4() {
+    fn test_lexer04() {
         let input = "5 + 5";
-        let out = vec![
-            TOK(LiteralNumber, 0, 1),
-            TOK(Plus, 2, 1),
-            TOK(LiteralNumber, 4, 1),
-        ];
-        assert_eq!(lex_force(input), out);
+        let tokens = &[(LiteralNumber, 0, 1), (Plus, 2, 1), (LiteralNumber, 4, 1)];
+        check_line(input, tokens);
     }
 
     #[test]
-    fn test_lexer5() {
+    fn test_lexer05() {
         let input = "print 5 or 6;";
-        let out = vec![
-            TOK(Print, 0, 5),
-            TOK(LiteralNumber, 6, 1),
-            TOK(Or, 8, 2),
-            TOK(LiteralNumber, 11, 1),
-            TOK(Semi, 12, 1),
+        let tokens = &[
+            (Print, 0, 5),
+            (LiteralNumber, 6, 1),
+            (Or, 8, 2),
+            (LiteralNumber, 11, 1),
+            (Semi, 12, 1),
         ];
-        assert_eq!(lex_force(input), out);
+        check_line(input, tokens);
     }
 
     #[test]
-    fn test_lexer6() {
+    fn test_lexer06() {
         let input = "t = {x = 3}";
-        let out = vec![
-            TOK(Identifier, 0, 1),
-            TOK(TokenType::Assign, 2, 1),
-            TOK(LCurly, 4, 1),
-            TOK(Identifier, 5, 1),
-            TOK(TokenType::Assign, 7, 1),
-            TOK(LiteralNumber, 9, 1),
-            TOK(RCurly, 10, 1),
+        let tokens = &[
+            (Identifier, 0, 1),
+            (Assign, 2, 1),
+            (LCurly, 4, 1),
+            (Identifier, 5, 1),
+            (Assign, 7, 1),
+            (LiteralNumber, 9, 1),
+            (RCurly, 10, 1),
         ];
-        assert_eq!(lex_force(input), out);
+        check_line(input, tokens);
     }
 
     #[test]
-    fn test_lexer7() {
+    fn test_lexer07() {
         let input = "0x5rad";
-        let out = vec![TOK(LiteralHexNumber, 0, 3), TOK(Identifier, 3, 3)];
-        assert_eq!(lex_force(input), out);
+        let tokens = &[(LiteralHexNumber, 0, 3), (Identifier, 3, 3)];
+        check_line(input, tokens);
     }
 
     #[test]
-    fn test_lexer8() {
+    fn test_lexer08() {
         let input = "print {x = 5,}";
-        let out = vec![
-            TOK(Print, 0, 5),
-            TOK(LCurly, 6, 1),
-            TOK(Identifier, 7, 1),
-            TOK(TokenType::Assign, 9, 1),
-            TOK(LiteralNumber, 11, 1),
-            TOK(Comma, 12, 1),
-            TOK(RCurly, 13, 1),
+        let tokens = &[
+            (Print, 0, 5),
+            (LCurly, 6, 1),
+            (Identifier, 7, 1),
+            (Assign, 9, 1),
+            (LiteralNumber, 11, 1),
+            (Comma, 12, 1),
+            (RCurly, 13, 1),
         ];
-        assert_eq!(lex_force(input), out);
+        check_line(input, tokens);
+    }
+
+    #[test]
+    fn test_lexer09() {
+        let input = "print()\nsome_other_function(an_argument)\n";
+        let tokens = &[
+            (Print, 0, 5),
+            (LParen, 5, 1),
+            (RParen, 6, 1),
+            (Identifier, 8, 19),
+            (LParen, 27, 1),
+            (Identifier, 28, 11),
+            (RParen, 39, 1),
+        ];
+        let linebreaks = &[0, 8, 41];
+        check(input, tokens, linebreaks);
+    }
+
+    #[test]
+    fn test_lexer10() {
+        let input = "\n\n2\n456\n";
+        let tokens = &[(LiteralNumber, 2, 1), (LiteralNumber, 4, 3)];
+        let linebreaks = &[0, 1, 2, 4, 8];
+        check(input, tokens, linebreaks);
     }
 }
