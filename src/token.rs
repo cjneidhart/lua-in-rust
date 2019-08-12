@@ -25,6 +25,8 @@ pub enum TokenType {
     LiteralHexNumber,
     LiteralString,
 
+    EndOfFile,
+
     // Placeholder
     Print
 }

@@ -37,6 +37,12 @@ impl State {
         self.eval_chunk(chunk)
     }
 
+    fn err(&mut self, kind: ErrorKind) -> Error {
+        let pos = 0;
+        let column = 0;
+        Error::new(kind, pos, column)
+    }
+
     pub fn eval_chunk(&mut self, chunk: Chunk) -> Result<()> {
         let mut stack = Vec::new();
         for _ in 0..chunk.num_locals {
@@ -85,7 +91,7 @@ impl State {
                         f(self);
                         stack.push(Val::Nil);
                     } else {
-                        return Err(Error::new(ErrorKind::TypeError));
+                        return Err(self.err(ErrorKind::TypeError));
                     }
                 }
 
@@ -111,7 +117,8 @@ impl State {
                     let end = stack.pop().unwrap();
                     let start = stack.pop().unwrap();
 
-                    let (start, end, step) = get_numeric_for_initializers(start, end, step)?;
+                    let (start, end, step) = get_numeric_for_initializers(start, end, step)
+                        .ok_or_else(|| self.err(ErrorKind::TypeError))?;
 
                     if check_numeric_for_condition(start, end, step) {
                         // The condition was true; set up the locals and start
@@ -182,7 +189,17 @@ impl State {
                 Instr::GreaterEqual => eval_float_bool(<f64 as PartialOrd>::ge, instr, &mut stack)?,
 
                 // String concatenation
-                Instr::Concat => attempt_concat(&mut stack)?,
+                Instr::Concat => {
+                    let v2 = stack.pop().unwrap();
+                    let v1 = stack.pop().unwrap();
+                    if let (Val::Str(s1), Val::Str(s2)) = (&v1, &v2) {
+                        let mut new_string = String::clone(s1);
+                        new_string += s2;
+                        stack.push(Val::Str(Rc::new(new_string)));
+                    } else {
+                        return Err(self.err(ErrorKind::TypeError));
+                    }
+                }
 
                 // Unary
                 Instr::Negate => {
@@ -190,7 +207,7 @@ impl State {
                     if let Val::Num(n) = e {
                         stack.push(Val::Num(-n));
                     } else {
-                        return Err(Error::new(ErrorKind::TypeError));
+                        return Err(self.err(ErrorKind::TypeError));
                     }
                 }
                 Instr::Not => {
@@ -211,7 +228,7 @@ impl State {
                         let val = t.get(&key);
                         stack.push(val.clone());
                     } else {
-                        return Err(Error::new(ErrorKind::TypeError));
+                        return Err(self.err(ErrorKind::TypeError));
                     }
                 }
 
@@ -222,7 +239,7 @@ impl State {
                         let key = Val::Str(Rc::new(get_string(&chunk, i as usize)));
                         t.insert(key, v)?;
                     } else {
-                        return Err(Error::new(ErrorKind::TypeError));
+                        return Err(self.err(ErrorKind::TypeError));
                     }
                 }
 
@@ -233,7 +250,7 @@ impl State {
                         let val = t.get(&key);
                         stack.push(val.clone());
                     } else {
-                        return Err(Error::new(ErrorKind::TypeError));
+                        return Err(self.err(ErrorKind::TypeError));
                     }
                 }
 
@@ -244,7 +261,7 @@ impl State {
                     if let Some(t) = as_table(&mut t) {
                         t.insert(key, val)?;
                     } else {
-                        return Err(Error::new(ErrorKind::TypeError));
+                        return Err(self.err(ErrorKind::TypeError));
                     }
                 }
 
@@ -265,19 +282,6 @@ fn get_string(chunk: &Chunk, i: usize) -> String {
     chunk.string_literals[i].clone()
 }
 
-fn attempt_concat(stack: &mut Vec<Val>) -> Result<()> {
-    let v2 = stack.pop().unwrap();
-    let v1 = stack.pop().unwrap();
-    if let (Val::Str(s1), Val::Str(s2)) = (&v1, &v2) {
-        let mut new_string = String::clone(s1);
-        new_string += s2;
-        stack.push(Val::Str(Rc::new(new_string)));
-        return Ok(());
-    }
-
-    Err(Error::new(ErrorKind::TypeError))
-}
-
 /// Evaluate a function of 2 floats which returns a bool.
 ///
 /// Take 2 values from the stack, pass them to `f`, and push the returned value
@@ -293,7 +297,7 @@ where
         return Ok(());
     }
 
-    Err(Error::new(ErrorKind::TypeError))
+    Err(Error::new(ErrorKind::TypeError, 0, 0))
 }
 
 /// Evaluate a function of 2 floats which returns a float.
@@ -312,7 +316,7 @@ where
     }
 
     // This has to be outside the `if let` to avoid borrow issues.
-    Err(Error::new(ErrorKind::TypeError))
+    Err(Error::new(ErrorKind::TypeError, 0, 0))
 }
 
 fn as_table(val: &mut Val) -> Option<&mut Table> {
@@ -325,11 +329,10 @@ fn as_table(val: &mut Val) -> Option<&mut Table> {
 }
 
 /// Get all three values as numbers.
-fn get_numeric_for_initializers(start: Val, limit: Val, step: Val) -> Result<(f64, f64, f64)> {
+fn get_numeric_for_initializers(start: Val, limit: Val, step: Val) -> Option<(f64, f64, f64)> {
     match (start, limit, step) {
-        (Val::Num(start), Val::Num(limit), Val::Num(step)) => Ok((start, limit, step)),
-        // TODO: More helpful error messages.
-        _ => Err(Error::new(ErrorKind::TypeError)),
+        (Val::Num(start), Val::Num(limit), Val::Num(step)) => Some((start, limit, step)),
+        _ => None,
     }
 }
 

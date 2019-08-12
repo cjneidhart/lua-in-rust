@@ -36,52 +36,59 @@ impl<'a> TokenStream<'a> {
     }
 
     /// Return the next Token.
-    pub fn next(&mut self) -> Result<Option<Token>> {
+    pub fn next(&mut self) -> Result<Token> {
         match self.lookahead.take() {
-            Some(tok) => Ok(Some(tok)),
+            Some(token) => Ok(token),
             None => self.lexer.next_token(),
         }
     }
 
-    pub fn peek(&mut self) -> Result<Option<&Token>> {
+    pub fn peek(&mut self) -> Result<&Token> {
         if self.lookahead.is_none() {
-            self.lookahead = self.lexer.next_token()?;
+            self.lookahead = Some(self.lexer.next_token()?);
         }
-        Ok(self.lookahead.as_ref())
+        Ok(self.lookahead.as_ref().unwrap())
     }
 
-    /// Return whether the next token is of the expected type, without popping it.
-    pub fn peek_type(&mut self) -> Result<Option<&TokenType>> {
-        match self.peek()? {
-            Some(tok) => Ok(Some(&tok.typ)),
-            None => Ok(None),
-        }
+    /// Return the type of the next token without popping it.
+    pub fn peek_type(&mut self) -> Result<TokenType> {
+        Ok(self.peek()?.typ)
     }
 
-    pub fn peek_type_is(&mut self, expected_type: TokenType) -> Result<bool> {
-        match self.peek_type()? {
-            Some(typ) if *typ == expected_type => Ok(true),
-            _ => Ok(false),
-        }
+    //pub fn peek_type_is(&mut self, expected_type: TokenType) -> Result<bool> {
+    pub fn check_type(&mut self, expected_type: TokenType) -> Result<bool> {
+        Ok(self.peek_type()? == expected_type)
     }
 
     /// Checks the next token's type. If it matches `typ`, it is popped off and
     /// returned as `Some`. Else, we return `None`.
     pub fn try_pop(&mut self, expected_type: TokenType) -> Result<Option<Token>> {
-        match self.peek()? {
-            Some(t) if t.typ == expected_type => self.next(),
-            _ => Ok(None),
+        if self.check_type(expected_type)? {
+            Ok(Some(self.next().unwrap()))
+        } else {
+            Ok(None)
         }
     }
 
-    pub fn push_back(&mut self, tok: Token) {
-        match self.lookahead {
-            Some(_) => {
-                panic!("Can't push token back after peeking.");
-            }
-            None => {
-                self.lookahead = Some(tok);
-            }
+    //pub fn push_back(&mut self, tok: Token) {
+    //    match self.lookahead {
+    //        Some(_) => {
+    //            panic!("Can't push token back after peeking.");
+    //        }
+    //        None => {
+    //            self.lookahead = Some(tok);
+    //        }
+    //    }
+    //}
+
+    pub fn line_and_column(&self, pos: usize) -> (usize, usize) {
+        self.lexer.line_and_col(pos)
+    }
+
+    pub fn pos(&self) -> usize {
+        match &self.lookahead {
+            Some(token) => token.start,
+            None => self.lexer.pos,
         }
     }
 }
@@ -96,7 +103,7 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    pub fn next_token(&mut self) -> Result<Option<Token>> {
+    pub fn next_token(&mut self) -> Result<Token> {
         let _starts_line = self.consume_whitespace();
         let tok_start = self.pos;
         if let Some(first_char) = self.next_char() {
@@ -140,9 +147,9 @@ impl<'a> Lexer<'a> {
                 _ => unimplemented!(),
             };
             let len = self.pos - tok_start;
-            Ok(Some(Token::new(tok_type, tok_start, len as u32)))
+            Ok(Token::new(tok_type, tok_start, len as u32))
         } else {
-            Ok(None)
+            Ok(Token::new(TokenType::EndOfFile, self.pos, 0))
         }
     }
 
@@ -191,8 +198,8 @@ impl<'a> Lexer<'a> {
     }
 
     fn error(&self, kind: ErrorKind) -> Error {
-        // TODO get actual numbers
-        Error::new(kind)
+        let (line_num, column) = self.line_and_col(self.pos);
+        Error::new(kind, line_num, column)
     }
 
     /// The lexer just read a `.`. Determine whether it was a:
@@ -356,6 +363,20 @@ impl<'a> Lexer<'a> {
 
         keyword_match(&word)
     }
+
+    fn line_and_col(&self, pos: usize) -> (usize, usize) {
+        let iter = self.linebreaks.windows(2).enumerate();
+        for (line_num, linebreak_pair) in iter {
+            if pos < linebreak_pair[1] {
+                let column = pos - linebreak_pair[0];
+                // lines and columns start counting at 1
+                return (line_num + 1, column + 1);
+            }
+        }
+        let line_num = self.linebreaks.len() - 1;
+        let column = pos - self.linebreaks.last().unwrap();
+        (line_num + 1, column + 1)
+    }
 }
 
 fn keyword_match(s: &str) -> TokenType {
@@ -395,7 +416,11 @@ mod tests {
         let mut tokens = tokens
             .iter()
             .map(|(typ, start, len)| Token::new(*typ, *start, *len));
-        while let Some(actual) = lexer.next_token().unwrap() {
+        loop {
+            let actual = lexer.next_token().unwrap();
+            if actual.typ == TokenType::EndOfFile {
+                break;
+            }
             let expected = tokens.next().unwrap();
             assert_eq!(expected, actual);
         }

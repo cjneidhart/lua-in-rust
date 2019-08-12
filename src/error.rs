@@ -18,8 +18,8 @@ pub enum ErrorKind {
 #[derive(Debug)]
 pub struct Error {
     kind: ErrorKind,
-    line: usize,
-    col: u32,
+    line_num: usize,
+    column: usize,
 }
 
 impl ErrorKind {
@@ -51,15 +51,27 @@ impl ErrorKind {
 }
 
 impl Error {
-    pub fn new(kind: ErrorKind) -> Self {
+    pub fn new(kind: ErrorKind, line_num: usize, column: usize) -> Self {
         Error {
             kind,
-            line: 0,
-            col: 0,
+            line_num,
+            column,
         }
     }
 
-    pub fn get_msg(&self) -> &str {
+    pub fn without_location(kind: ErrorKind) -> Self {
+        Error::new(kind, 0, 0)
+    }
+
+    pub fn column(&self) -> usize {
+        self.column
+    }
+
+    pub fn line_num(&self) -> usize {
+        self.line_num
+    }
+
+    pub fn message(&self) -> &str {
         self.kind.message()
     }
 

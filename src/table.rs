@@ -22,8 +22,8 @@ impl Table {
 
     pub fn insert(&mut self, key: Val, value: Val) -> Result<()> {
         match key {
-            Val::Nil => Err(Error::new(ErrorKind::TableKeyNil)),
-            Val::Num(n) if n.is_nan() => Err(Error::new(ErrorKind::TableKeyNil)),
+            Val::Nil => Err(Error::new(ErrorKind::TableKeyNil, 0, 0)),
+            Val::Num(n) if n.is_nan() => Err(Error::new(ErrorKind::TableKeyNan, 0, 0)),
             _ => {
                 self.map.insert(key, value);
                 Ok(())
