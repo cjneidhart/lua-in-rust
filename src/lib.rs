@@ -13,10 +13,10 @@ use error::{Error, ErrorKind};
 use instr::Instr;
 use lua_val::Val;
 use object::{GcHeap, ObjectPtr};
-use parser::Chunk;
 use table::Table;
 use token::{Token, TokenType};
 
+pub use parser::Chunk;
 pub use vm::State;
 
 pub type Result<T> = std::result::Result<T, Error>;

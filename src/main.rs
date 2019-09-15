@@ -1,7 +1,6 @@
 use std::env::args;
 use std::fs::read_to_string;
-use std::io;
-use std::io::Write;
+use std::io::{self, Write};
 
 use lua::State;
 
@@ -21,20 +20,41 @@ fn run_file(filename: &str) {
 fn run_prompt() {
     let stdin = io::stdin();
     let mut stdout = io::stdout();
-    let mut buf = String::new();
     let mut state = State::new();
     loop {
-        print!("> ");
-        stdout.flush().unwrap();
-        buf.clear();
-        stdin.read_line(&mut buf).unwrap();
-        if buf.is_empty() {
-            println!();
-            break;
+        let mut bytes_read = 0;
+        let mut is_first_time = true;
+        let load_result = State::load(|buffer| {
+            if is_first_time {
+                print!("> ");
+                is_first_time = false;
+            } else {
+                print!(">> ");
+            }
+            let _ = stdout.flush();
+
+            let n = stdin.read_line(buffer)?;
+            if n == 0 {
+                std::process::exit(0);
+            }
+            bytes_read += n;
+            Ok(n)
+        });
+
+        match load_result {
+            Ok(chunk) => {
+                let eval_result = state.eval_chunk(chunk);
+                if let Err(e) = eval_result {
+                    eprintln!("eval error: {}", e);
+                }
+            }
+            Err(e) => {
+                eprintln!("stdin: {}", e);
+            }
         }
 
-        if let Err(e) = state.loadstring(&buf) {
-            eprintln!("stdin: {}", e.message());
+        if bytes_read == 0 {
+            break;
         }
     }
 }

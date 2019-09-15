@@ -1,8 +1,12 @@
+use std::fmt;
+use std::io;
+
 #[derive(Debug)]
 pub enum ErrorKind {
     BadNumber,
     Complexity,
     InvalidCharacter,
+    Io(io::Error),
     TooManyLocals,
     TooManyNumbers,
     TooManyStrings,
@@ -25,27 +29,30 @@ pub struct Error {
 impl ErrorKind {
     pub fn is_recoverable(&self) -> bool {
         match self {
-            ErrorKind::UnclosedString | ErrorKind::UnexpectedEof => true,
+            ErrorKind::UnclosedString | ErrorKind::UnexpectedEof | ErrorKind::UnexpectedTok => true,
             _ => false,
         }
     }
+}
 
-    pub fn message(&self) -> &str {
+impl fmt::Display for ErrorKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use ErrorKind::*;
         match self {
-            BadNumber => "malformed number",
-            Complexity => "complexity",
-            InvalidCharacter => "invalid character",
-            TooManyLocals => "too many local variables",
-            TooManyNumbers => "too many literal numbers",
-            TooManyStrings => "too many literal strings",
-            UnclosedString => "unfinished string",
-            UnexpectedEof => "unexpected <eof>",
-            UnexpectedTok => "syntax error",
-            UnsupportedFeature => "unsupported feature",
-            TableKeyNan => "table index was NaN",
-            TableKeyNil => "table index was nil",
-            TypeError => "type error",
+            BadNumber => write!(f, "malformed number"),
+            Complexity => write!(f, "complexity"),
+            InvalidCharacter => write!(f, "invalid character"),
+            Io(e) => write!(f, "{}", e),
+            TooManyLocals => write!(f, "too many local variables"),
+            TooManyNumbers => write!(f, "too many literal numbers"),
+            TooManyStrings => write!(f, "too many literal strings"),
+            UnclosedString => write!(f, "unfinished string"),
+            UnexpectedEof => write!(f, "unexpected <eof>"),
+            UnexpectedTok => write!(f, "syntax error"),
+            UnsupportedFeature => write!(f, "unsupported feature"),
+            TableKeyNan => write!(f, "table index was NaN"),
+            TableKeyNil => write!(f, "table index was nil"),
+            TypeError => write!(f, "type error"),
         }
     }
 }
@@ -63,6 +70,11 @@ impl Error {
         Error::new(kind, 0, 0)
     }
 
+    pub fn from_io_error(io_error: io::Error) -> Self {
+        let kind = ErrorKind::Io(io_error);
+        Error::without_location(kind)
+    }
+
     pub fn column(&self) -> usize {
         self.column
     }
@@ -71,11 +83,13 @@ impl Error {
         self.line_num
     }
 
-    pub fn message(&self) -> &str {
-        self.kind.message()
-    }
-
     pub fn is_recoverable(&self) -> bool {
         self.kind.is_recoverable()
+    }
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "error {}:{}: {}", self.line_num, self.column, self.kind)
     }
 }

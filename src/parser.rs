@@ -18,8 +18,8 @@ pub struct Chunk {
     pub num_locals: u8,
 }
 
-pub fn parse_str(source: &str) -> Result<Chunk> {
-    let parser = Parser::new(source);
+pub fn parse_str(source: impl AsRef<str>) -> Result<Chunk> {
+    let parser = Parser::new(source.as_ref());
     parser.parse_chunk()
 }
 

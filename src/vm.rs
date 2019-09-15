@@ -2,6 +2,7 @@
 //! components of the VM.
 
 use std::collections::HashMap;
+use std::io;
 use std::ops::{Add, Div, Mul, Rem, Sub};
 use std::rc::Rc;
 
@@ -30,6 +31,33 @@ impl State {
         let mut me = State::default();
         lua_std::init(&mut me);
         me
+    }
+
+    /// Calls `reader` to produce source code, then parses that code and returns
+    /// the chunk. If the code is syntactically invalid, but could be valid if
+    /// more code was appended, then reader will be called again. A common use
+    /// for this function is for `reader` to query the user for a line of input.
+    pub fn load<F>(mut reader: F) -> Result<Chunk>
+    where
+        F: FnMut(&mut String) -> io::Result<usize>,
+    {
+        let mut buffer = String::new();
+        loop {
+            match reader(&mut buffer) {
+                Ok(_) => (),
+                Err(e) => {
+                    return Err(Error::from_io_error(e));
+                }
+            }
+            match parser::parse_str(&buffer) {
+                Err(ref e) if e.is_recoverable() => {
+                    continue;
+                }
+                result => {
+                    return result;
+                }
+            }
+        }
     }
 
     pub fn loadstring(&mut self, source: &str) -> Result<()> {
