@@ -109,7 +109,6 @@ impl<'a> Lexer<'a> {
         if let Some(first_char) = self.next_char() {
             let tok_type = match first_char {
                 '+' => Plus,
-                '-' => Minus,
                 '*' => Star,
                 '/' => Slash,
                 '%' => Mod,
@@ -127,6 +126,14 @@ impl<'a> Lexer<'a> {
                 '.' => self.peek_dot(tok_start)?,
 
                 '=' | '<' | '>' | '~' => self.peek_equals(tok_start, first_char)?,
+
+                '-' => {
+                    if self.try_next('-') {
+                        return self.comment();
+                    } else {
+                        Minus
+                    }
+                }
 
                 '\'' => self.lex_string(true, tok_start)?,
                 '\"' => self.lex_string(false, tok_start)?,
@@ -151,6 +158,16 @@ impl<'a> Lexer<'a> {
         } else {
             Ok(Token::new(TokenType::EndOfFile, self.pos, 0))
         }
+    }
+
+    fn comment(&mut self) -> Result<Token> {
+        // TODO multi-line comments
+        while let Some(c) = self.next_char() {
+            if c == '\n' {
+                return self.next_token();
+            }
+        }
+        Ok(Token::new(TokenType::EndOfFile, self.pos, 0))
     }
 
     fn peek_char(&mut self) -> Option<char> {
@@ -530,6 +547,19 @@ mod tests {
         let input = "\n\n2\n456\n";
         let tokens = &[(LiteralNumber, 2, 1), (LiteralNumber, 4, 3)];
         let linebreaks = &[0, 1, 2, 4, 8];
+        check(input, tokens, linebreaks);
+    }
+
+    #[test]
+    fn test_lexer11() {
+        let input = "-- basic test\nprint('hi' --comment\n )\n";
+        let tokens = &[
+            (Print, 14, 5),
+            (LParen, 19, 1),
+            (LiteralString, 20, 4),
+            (RParen, 36, 1),
+        ];
+        let linebreaks = &[0, 14, 35, 38];
         check(input, tokens, linebreaks);
     }
 }

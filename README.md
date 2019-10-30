@@ -11,6 +11,7 @@ Goals
 - [x] Local variables with proper scoping
 - [x] Numeric `for` loops
 - [x] Multiple assignment
+- [x] Single-line comments
 - [ ] Function calls
 - [ ] Function definition
 - [ ] Tables
@@ -20,7 +21,7 @@ Goals
 - [ ] A Rust API to parallel Lua's C API
 - [ ] Coroutines
 - [ ] Feature parity with Lua 5.1
-- [ ] Comments
+- [ ] Multi-line comments
 - [ ] Separate `luac` executable
 
 
