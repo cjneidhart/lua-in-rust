@@ -20,3 +20,18 @@ Goals
 - [ ] A Rust API to parallel Lua's C API
 - [ ] Coroutines
 - [ ] Feature parity with Lua 5.1
+- [ ] Comments
+- [ ] Separate `luac` executable
+
+
+### Debug options
+There are a few environment options which enable debug features.
+These are all disabled by default.
+To enable an option, just set it in the environment before compiling
+(e.g. `export LUA_DEBUG_VM=1; cargo build`).
+For details on a debug option, look in the corresponding module.
+
+The options are:
+- `LUA_DEBUG_PARSER`
+- `LUA_DEBUG_VM`
+- `LUA_DEBUG_GC`
