@@ -260,7 +260,18 @@ impl State {
                     }
                 }
 
-                Instr::SetField(i) => {
+                Instr::SetField(stack_offset, literal_id) => {
+                    let v = stack.pop().unwrap();
+                    let index = stack.len() - stack_offset as usize - 1;
+                    let mut t = stack.remove(index);
+                    if let Some(t) = as_table(&mut t) {
+                        let key = Val::Str(Rc::new(get_string(&chunk, literal_id as usize)));
+                        t.insert(key, v)?;
+                    } else {
+                        return Err(self.err(ErrorKind::TypeError));
+                    }
+                }
+                Instr::InitField(i) => {
                     let v = stack.pop().unwrap();
                     let mut t = stack.pop().unwrap();
                     if let Some(t) = as_table(&mut t) {
@@ -269,6 +280,7 @@ impl State {
                     } else {
                         return Err(self.err(ErrorKind::TypeError));
                     }
+                    stack.push(t);
                 }
 
                 Instr::GetTable => {
@@ -282,10 +294,11 @@ impl State {
                     }
                 }
 
-                Instr::SetTable => {
+                Instr::SetTable(offset) => {
                     let val = stack.pop().unwrap();
-                    let key = stack.pop().unwrap();
-                    let mut t = stack.pop().unwrap();
+                    let index = stack.len() - offset as usize - 2;
+                    let mut t = stack.remove(index);
+                    let key = stack.remove(index);
                     if let Some(t) = as_table(&mut t) {
                         t.insert(key, val)?;
                     } else {
@@ -506,6 +519,11 @@ mod tests {
 
     #[test]
     fn vm_test09() {
+        // local a = 1
+        // while a < 10 do
+        //   a = a + 1
+        // end
+        // x = a
         let code = vec![
             PushNum(0),
             SetLocal(0),

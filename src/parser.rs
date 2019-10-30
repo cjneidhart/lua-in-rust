@@ -40,6 +40,21 @@ struct Parser<'a> {
     num_locals: u8,
 }
 
+/// This represents an expression which can appear on the left-hand side of an assignment.
+/// Also called an "lvalue" in other languages.
+enum PlaceExp {
+    Local(u8),
+    Global(u8),
+    TableIndex,
+    FieldAssign(u8),
+}
+
+enum PrefixExp {
+    Place(PlaceExp),
+    FunctionCall,
+    Parenthesized,
+}
+
 impl<'a> Parser<'a> {
     /// Basic constructor
     fn new(source: &'a str) -> Self {
@@ -108,6 +123,10 @@ impl<'a> Parser<'a> {
         self.error_at(ErrorKind::UnexpectedTok, token.start)
     }
 
+    fn get_text(&self, token: Token) -> String {
+        self.text[token.range()].to_string()
+    }
+
     // Actual parsing
 
     /// Entry point for the parser.
@@ -150,162 +169,89 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_assign_or_call(&mut self) -> Result<()> {
-        let first_set_instr = match self.parse_place()? {
-            Some(i) => i,
-            None => {
-                // we parsed a function call, we're done.
-                return Ok(());
+        match self.parse_prefix_exp()? {
+            PrefixExp::Parenthesized => {
+                let tok = self.input.next()?;
+                Err(self.err_unexpected(tok, TokenType::Assign))
             }
-        };
-
-        let mut assignment_code = vec![first_set_instr];
-
-        while self.input.try_pop(TokenType::Comma)?.is_some() {
-            match self.parse_place()? {
-                Some(instr) => assignment_code.push(instr),
-                None => return Err(self.error(ErrorKind::UnexpectedTok)),
-            }
+            PrefixExp::FunctionCall => Ok(()),
+            PrefixExp::Place(first_place) => self.parse_assign(first_place),
         }
-        self.expect(TokenType::Assign)?;
+    }
 
-        let num_expressions = self.parse_explist()? as isize;
-        let diff = assignment_code.len() as isize - num_expressions;
+    fn parse_assign(&mut self, first_exp: PlaceExp) -> Result<()> {
+        let mut places = vec![first_exp];
+        while self.input.try_pop(TokenType::Comma)?.is_some() {
+            places.push(self.parse_place_exp()?);
+        }
+
+        self.expect(TokenType::Assign)?;
+        let num_lvals = places.len() as isize;
+        let num_rvals = self.parse_explist()? as isize;
+        let diff = num_lvals - num_rvals;
         if diff > 0 {
             for _ in 0..diff {
                 self.push(Instr::PushNil);
             }
         } else {
+            // discard excess rvals
             for _ in diff..0 {
                 self.push(Instr::Pop);
             }
         }
 
-        // Assignments occur right-to-left
-        assignment_code.reverse();
-        self.output.extend(assignment_code);
+        places.reverse();
+        for (i, place_exp) in places.into_iter().enumerate() {
+            let instr = match place_exp {
+                PlaceExp::Local(i) => Instr::SetLocal(i),
+                PlaceExp::Global(i) => Instr::SetGlobal(i),
+                PlaceExp::FieldAssign(literal_id) => {
+                    let stack_offset = num_lvals as u8 - i as u8 - 1;
+                    Instr::SetField(stack_offset, literal_id)
+                }
+                PlaceExp::TableIndex => {
+                    let stack_offset = num_lvals as u8 - i as u8 - 1;
+                    Instr::SetTable(stack_offset)
+                }
+            };
+            self.push(instr);
+        }
 
         Ok(())
     }
 
-    /// Parse a single place expression or function call. If it's a call,
-    /// return `None`. If it's a place expression, returns the instruction
-    /// to perform the assignment.
-    fn parse_place(&mut self) -> Result<Option<Instr>> {
-        if self.input.try_pop(TokenType::LParen)?.is_some() {
-            self.parse_expr()?;
-            self.expect(TokenType::RParen)?;
-            let pos = self.input.pos();
-            match self.parse_place_extension() {
-                Ok(None) => Err(self.error_at(ErrorKind::UnexpectedTok, pos)),
-                x => x,
+    /// Parse an expression which can appear on the left side of an assignment.
+    fn parse_place_exp(&mut self) -> Result<PlaceExp> {
+        match self.parse_prefix_exp()? {
+            PrefixExp::Parenthesized | PrefixExp::FunctionCall => {
+                let tok = self.input.next()?;
+                Err(self.err_unexpected(tok, TokenType::Assign))
             }
-        } else {
-            let name = self.expect_identifier()?;
-            match self.input.peek_type()? {
-                TokenType::Assign | TokenType::Comma => {
-                    let instr = self.parse_set_identifier(&name)?;
-                    Ok(Some(instr))
-                }
-                TokenType::Dot
-                | TokenType::LSquare
-                | TokenType::LCurly
-                | TokenType::LParen
-                | TokenType::Colon
-                | TokenType::LiteralString => {
-                    self.parse_get_identifier(&name)?;
-                    self.parse_place_extension()
-                }
-                _ => {
-                    let token = self.input.next()?;
-                    Err(self.err_unexpected(token, TokenType::Assign))
-                }
-            }
+            PrefixExp::Place(place) => Ok(place),
         }
     }
 
-    /// Emit the bytecode to retrieve the value of the given `name`, which
-    /// may resolve to either a local or a global.
-    fn parse_get_identifier(&mut self, name: &str) -> Result<()> {
-        let instr = match find_last_local(&self.locals, name) {
-            Some(i) => Instr::GetLocal(i as u8),
+    fn eval_prefix_exp(&mut self, exp: PrefixExp) {
+        if let PrefixExp::Place(place) = exp {
+            let instr = match place {
+                PlaceExp::Local(i) => Instr::GetLocal(i),
+                PlaceExp::Global(i) => Instr::GetGlobal(i),
+                PlaceExp::FieldAssign(i) => Instr::GetField(i),
+                PlaceExp::TableIndex => Instr::GetTable,
+            };
+            self.push(instr);
+        }
+    }
+
+    /// Parse a variable's name. This should only ever return `Local` or `Global`.
+    fn parse_prefix_identifier(&mut self, name: String) -> Result<PrefixExp> {
+        match find_last_local(&self.locals, &name) {
+            Some(i) => Ok(PrefixExp::Place(PlaceExp::Local(i as u8))),
             None => {
                 let i = self.find_or_add_string(name)?;
-                Instr::GetGlobal(i)
-            }
-        };
-        self.push(instr);
-        Ok(())
-    }
-
-    /// Return the instruction to assign to the given identifier.
-    ///
-    /// Does not alter `self.output`.
-    fn parse_set_identifier(&mut self, name: &str) -> Result<Instr> {
-        match find_last_local(&self.locals, name) {
-            Some(i) => Ok(Instr::SetLocal(i as u8)),
-            None => {
-                let i = self.find_or_add_string(name)?;
-                Ok(Instr::SetGlobal(i))
+                Ok(PrefixExp::Place(PlaceExp::Global(i)))
             }
         }
-    }
-
-    /// Any place expression can be followed by an indexing operation or a
-    /// function/method call.
-    fn parse_place_extension(&mut self) -> Result<Option<Instr>> {
-        match self.input.peek_type()? {
-            TokenType::Dot => self.parse_place_field(),
-            TokenType::LSquare => self.parse_place_index(),
-            TokenType::LParen => self.parse_place_call(),
-            TokenType::Colon => panic!("Method calls unsupported"),
-            TokenType::LiteralString | TokenType::LCurly => {
-                panic!("Unparenthesized function calls unsupported")
-            }
-            _ => Ok(None),
-        }
-    }
-
-    /// Parse a field access for a place expression.
-    fn parse_place_field(&mut self) -> Result<Option<Instr>> {
-        self.input.next()?; // `dot` token
-        let name = self.expect_identifier()?;
-        let i = self.find_or_add_string(&name)?;
-        match self.input.peek_type()? {
-            TokenType::Assign | TokenType::Comma => {
-                self.input.next()?;
-                Ok(Some(Instr::SetField(i)))
-            }
-            _ => {
-                self.push(Instr::GetField(i));
-                self.parse_place_extension()
-            }
-        }
-    }
-
-    /// Parse an indexing operation (`[]`) for a place expression.
-    fn parse_place_index(&mut self) -> Result<Option<Instr>> {
-        self.input.next()?; // `[` token
-        self.parse_expr()?;
-        self.expect(TokenType::RSquare)?;
-        if let TokenType::Assign | TokenType::Comma = self.input.peek_type()? {
-            Ok(Some(Instr::SetTable))
-        } else {
-            Err(self.error(ErrorKind::UnexpectedTok))
-        }
-    }
-
-    /// Parse a function call as part of a place expresion.
-    fn parse_place_call(&mut self) -> Result<Option<Instr>> {
-        self.input.next()?; // `(` token
-        let num_args = if self.input.check_type(TokenType::RParen)? {
-            0
-        } else {
-            self.parse_explist()?
-        };
-        self.expect(TokenType::RParen)?;
-        self.push(Instr::Call(num_args));
-
-        self.parse_place_extension()
     }
 
     /// Parse a `local` declaration.
@@ -709,45 +655,99 @@ impl<'a> Parser<'a> {
         Ok(())
     }
 
-    /// Parse an expression, after eliminating any operators. This can be:
-    ///
-    /// * An identifier
-    /// * A table lookup (`table[key]` or `table.key`)
-    /// * A function call
+    fn parse_primary(&mut self) -> Result<()> {
+        match self.input.peek_type()? {
+            TokenType::Identifier | TokenType::LParen => {
+                let prefix = self.parse_prefix_exp()?;
+                self.eval_prefix_exp(prefix);
+                Ok(())
+            }
+            _ => self.parse_expr_base(),
+        }
+    }
+
+    /// Parse a `prefix expression`. Prefix expressions are the expressions
+    /// which can appear on the left side of a function call, table index, or
+    /// field access.
+    fn parse_prefix_exp(&mut self) -> Result<PrefixExp> {
+        let tok = self.input.next()?;
+        let prefix = match tok.typ {
+            TokenType::Identifier => {
+                let text = self.get_text(tok);
+                self.parse_prefix_identifier(text)?
+            }
+            TokenType::LParen => {
+                self.parse_expr()?;
+                self.expect(TokenType::RParen)?;
+                PrefixExp::Parenthesized
+            }
+            _ => {
+                return Err(self.err_unexpected(tok, TokenType::Identifier));
+            }
+        };
+        self.parse_prefix_extension(prefix)
+    }
+
+    /// Any prefix expression can be followed by an indexing operation or a
+    /// function/method call.
+    fn parse_prefix_extension(&mut self, base_expr: PrefixExp) -> Result<PrefixExp> {
+        match self.input.peek_type()? {
+            TokenType::Dot => {
+                self.eval_prefix_exp(base_expr);
+                self.input.next()?;
+                let name = self.expect_identifier()?;
+                let i = self.find_or_add_string(name)?;
+                let prefix = PrefixExp::Place(PlaceExp::FieldAssign(i));
+                self.parse_prefix_extension(prefix)
+            }
+            TokenType::LSquare => {
+                self.eval_prefix_exp(base_expr);
+                self.input.next()?;
+                self.parse_expr()?;
+                self.expect(TokenType::RSquare)?;
+                let prefix = PrefixExp::Place(PlaceExp::TableIndex);
+                self.parse_prefix_extension(prefix)
+            }
+            TokenType::LParen => {
+                self.eval_prefix_exp(base_expr);
+                self.input.next()?;
+                self.parse_call()?;
+                self.parse_prefix_extension(PrefixExp::FunctionCall)
+            }
+            TokenType::Colon => panic!("Method calls unsupported"),
+            TokenType::LiteralString | TokenType::LCurly => {
+                panic!("Unparenthesized function calls unsupported")
+            }
+            _ => Ok(base_expr),
+        }
+    }
+
+    /// Parse a base expression, after eliminating any operators. This can be:
     /// * A literal number
     /// * A literal string
     /// * A function definition
     /// * One of the keywords `nil`, `false` or `true
     /// * A table constructor
-    fn parse_primary(&mut self) -> Result<()> {
+    fn parse_expr_base(&mut self) -> Result<()> {
         let tok = self.input.next()?;
         match tok.typ {
             TokenType::LCurly => self.parse_table()?,
-            TokenType::LParen => {
-                self.parse_expr()?;
-                self.expect(TokenType::RParen)?;
-                self.parse_after_prefixexp()?;
-            }
-            TokenType::Identifier => {
-                let name = &self.text[tok.start..(tok.start + tok.len as usize)];
-                self.parse_get_identifier(name)?;
-                self.parse_after_prefixexp()?;
-            }
             TokenType::LiteralNumber => {
-                let s = &self.text[tok.start..(tok.start + tok.len as usize)];
+                let s = self.get_text(tok);
                 let n = s.parse::<f64>().unwrap();
                 let i = self.find_or_add_number(n)?;
                 self.push(Instr::PushNum(i));
             }
             TokenType::LiteralHexNumber => {
-                let s = &self.text[(tok.start + 2)..(tok.start + tok.len as usize)];
+                // Cut off the "0x"
+                let s = &self.get_text(tok)[2..];
                 let n = u128::from_str_radix(s, 16).unwrap() as f64;
                 let i = self.find_or_add_number(n)?;
                 self.push(Instr::PushNum(i));
             }
             TokenType::LiteralString => {
                 let s = self.get_string_from_text(tok.start, tok.len);
-                let i = self.find_or_add_string(&s)?;
+                let i = self.find_or_add_string(s)?;
                 self.push(Instr::PushString(i));
             }
             TokenType::Nil => self.push(Instr::PushNil),
@@ -785,11 +785,11 @@ impl<'a> Parser<'a> {
         let tok = self.input.next()?;
         match tok.typ {
             TokenType::Identifier => {
-                let s = &self.text[tok.start..(tok.start + tok.len as usize)];
-                let index = self.find_or_add_string(&s)?;
+                let s = &self.text[tok.range()];
+                let index = self.find_or_add_string(s.to_string())?;
                 self.expect(TokenType::Assign)?;
                 self.parse_expr()?;
-                self.push(Instr::SetField(index));
+                self.push(Instr::InitField(index));
             }
             TokenType::LSquare => panic!("Unsupported"),
             _ => panic!("Also unsupported"),
@@ -797,34 +797,7 @@ impl<'a> Parser<'a> {
         Ok(())
     }
 
-    /// Parse the operations which can come after a prefix expression: a
-    /// function call, a table index, or a method call.
-    ///
-    /// A prefixexp is a variable, functioncall, or parenthesized expression.
-    fn parse_after_prefixexp(&mut self) -> Result<()> {
-        if self.input.try_pop(TokenType::LParen)?.is_some() {
-            self.parse_call_exp()
-        } else if self.input.try_pop(TokenType::Dot)?.is_some() {
-            self.parse_field()
-        } else if self.input.try_pop(TokenType::LSquare)?.is_some() {
-            self.parse_expr()?;
-            self.expect(TokenType::RSquare)?;
-            self.push(Instr::GetTable);
-            self.parse_after_prefixexp()
-        } else {
-            Ok(())
-        }
-    }
-
-    /// Parse a field access
-    fn parse_field(&mut self) -> Result<()> {
-        let name = self.expect_identifier()?;
-        let i = self.find_or_add_string(&name)?;
-        self.push(Instr::GetField(i));
-        self.parse_after_prefixexp()
-    }
-
-    fn parse_call_exp(&mut self) -> Result<()> {
+    fn parse_call(&mut self) -> Result<()> {
         let num_args = if self.input.check_type(TokenType::RParen)? {
             0
         } else {
@@ -849,8 +822,9 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn find_or_add_string(&mut self, name: &str) -> Result<u8> {
-        find_or_add(&mut self.string_literals, name.to_string())
+    fn find_or_add_string(&mut self, string: String) -> Result<u8> {
+        // TODO: Make this work using &str without always creating a new String.
+        find_or_add(&mut self.string_literals, string)
             .ok_or_else(|| self.error(ErrorKind::TooManyStrings))
     }
 
@@ -1349,7 +1323,7 @@ mod tests {
     #[test]
     fn test26() {
         let text = "print {x = 5,}";
-        let code = vec![NewTable, PushNum(0), SetField(0), Instr::Print];
+        let code = vec![NewTable, PushNum(0), InitField(0), Instr::Print];
         let chunk = Chunk {
             code,
             number_literals: vec![5.0],

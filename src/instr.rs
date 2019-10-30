@@ -55,16 +55,27 @@ pub enum Instr {
     /// literal set at the given index.
     GetField(u8),
 
-    /// In the table which is second on the stack, assign the value on the top
-    /// of the stack, using as the key the string found in the literal set at
-    /// the given index.
-    SetField(u8),
+    /// Assign to a table. The key will be string literal `op1`.
+    /// From the top, the stack should contain:
+    /// * The new value
+    /// * `op0` number of other values
+    /// * The table
+    SetField(u8, u8),
+
+    /// Assign the value `stack[0]` to the table `stack[-1]` using the string
+    /// literal `op0` as the key. Leave the table on the stack afterwards.
+    InitField(u8),
 
     /// Get a value from a table.
     GetTable,
 
     /// Assign to a table.
-    SetTable,
+    /// From the top, the stack should contain:
+    /// * The new value
+    /// * The given number of other values, which will be ignored
+    /// * The key
+    /// * The table
+    SetTable(u8),
 
     /// Push a `nil` value onto the stack.
     PushNil,

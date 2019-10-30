@@ -1,3 +1,5 @@
+use std::ops::Range;
+
 #[derive(Debug, PartialEq)]
 pub struct Token {
     pub typ: TokenType,
@@ -34,5 +36,11 @@ pub enum TokenType {
 impl Token {
     pub fn new(typ: TokenType, start: usize, len: u32) -> Self {
         Token { typ, start, len }
+    }
+
+    pub fn range(&self) -> Range<usize> {
+        let start = self.start;
+        let end = start + self.len as usize;
+        start..end
     }
 }
