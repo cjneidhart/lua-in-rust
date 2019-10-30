@@ -244,7 +244,7 @@ impl State {
                 }
 
                 Instr::NewTable => {
-                    let obj_ptr = self.heap.new_table();
+                    let obj_ptr = self.heap.new_table(&stack[..]);
                     let val = Val::Obj(obj_ptr);
                     stack.push(val);
                 }

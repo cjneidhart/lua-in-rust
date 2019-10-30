@@ -3,10 +3,8 @@
 //! - May have references to other `Object`s
 //!
 //! Because of this, it needs to be garbage collected.
-#![allow(dead_code)]
 
 use std::cell::Cell;
-use std::collections::HashSet;
 use std::ops::{Deref, DerefMut, Drop};
 use std::ptr::{self, NonNull};
 
@@ -60,14 +58,17 @@ enum Color {
 
 /// A collection of objects which need to be garbage-collected.
 pub struct GcHeap {
+    /// The start of the linked list which contains every Object.
     start: *mut Object,
+    /// The number of objects currently in the heap.
     size: usize,
-    old_size: usize,
-    roots: HashSet<ObjectPtr>,
+    /// When the heap grows this large, run the GC.
+    threshold: usize,
 }
 
 impl GcHeap {
-    pub fn new_table(&mut self) -> ObjectPtr {
+    pub fn new_table(&mut self, roots: &[impl Markable]) -> ObjectPtr {
+        self.check_size(roots);
         let table = Table::default();
         let new_object = Object {
             next: self.start,
@@ -86,20 +87,17 @@ impl GcHeap {
     }
 
     /// Run the garbage-collector
-    pub fn collect(&mut self) {
-        self.mark();
-        self.sweep();
-    }
-
-    /// Walk through every object in the heap, starting with the roots.
-    fn mark(&mut self) {
-        for root in &self.roots {
-            root.mark_reachable();
+    pub fn collect(&mut self, roots: &[impl Markable]) {
+        if option_env!("LUA_DEBUG_GC").is_some() {
+            println!("Running garbage collector");
+            println!("Initial size: {}", self.size);
         }
-    }
 
-    fn sweep(&mut self) {
-        self.old_size = self.size;
+        // TODO also mark the global variables.
+        for val in roots {
+            val.mark_reachable();
+        }
+
         let mut next_ptr_ref = &mut self.start;
         while !next_ptr_ref.is_null() {
             // From right-to-left, this unsafe block means:
@@ -120,6 +118,13 @@ impl GcHeap {
                 }
             }
         }
+        self.threshold = self.size * 2;
+    }
+
+    fn check_size(&mut self, roots: &[impl Markable]) {
+        if self.size >= self.threshold {
+            self.collect(roots);
+        }
     }
 }
 
@@ -128,8 +133,7 @@ impl Default for GcHeap {
         Self {
             start: ptr::null_mut(),
             size: 0,
-            old_size: 0,
-            roots: HashSet::default(),
+            threshold: 20,
         }
     }
 }
