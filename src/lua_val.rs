@@ -71,6 +71,7 @@ impl Display for Val {
             Nil => write!(f, "nil"),
             Bool(b) => Display::fmt(b, f),
             Num(n) => Display::fmt(n, f),
+            Obj(o) => Display::fmt(o, f),
             _ => write!(f, "{:#?}", self),
         }
     }

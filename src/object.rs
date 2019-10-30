@@ -5,6 +5,7 @@
 //! Because of this, it needs to be garbage collected.
 
 use std::cell::Cell;
+use std::fmt::{self, Display};
 use std::ops::{Deref, DerefMut, Drop};
 use std::ptr::{self, NonNull};
 
@@ -47,6 +48,12 @@ impl Deref for ObjectPtr {
 impl DerefMut for ObjectPtr {
     fn deref_mut(&mut self) -> &mut Object {
         unsafe { self.0.as_mut() }
+    }
+}
+
+impl Display for ObjectPtr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "table: {:p}", self.0)
     }
 }
 
