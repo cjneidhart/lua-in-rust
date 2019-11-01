@@ -7,7 +7,6 @@ use std::ops::{Add, Div, Mul, Rem, Sub};
 use std::rc::Rc;
 
 use crate::lua_std;
-use crate::object::RawObject;
 use crate::parser;
 use crate::Chunk;
 use crate::Error;
@@ -15,7 +14,6 @@ use crate::ErrorKind;
 use crate::GcHeap;
 use crate::Instr;
 use crate::Result;
-use crate::Table;
 use crate::Val;
 
 #[derive(Default)]
@@ -251,7 +249,7 @@ impl State {
 
                 Instr::GetField(i) => {
                     let mut t = stack.pop().unwrap();
-                    if let Some(t) = as_table(&mut t) {
+                    if let Some(t) = t.as_table() {
                         let key = Val::Str(Rc::new(get_string(&chunk, i as usize)));
                         let val = t.get(&key);
                         stack.push(val.clone());
@@ -264,7 +262,7 @@ impl State {
                     let v = stack.pop().unwrap();
                     let index = stack.len() - stack_offset as usize - 1;
                     let mut t = stack.remove(index);
-                    if let Some(t) = as_table(&mut t) {
+                    if let Some(t) = t.as_table() {
                         let key = Val::Str(Rc::new(get_string(&chunk, literal_id as usize)));
                         t.insert(key, v)?;
                     } else {
@@ -274,7 +272,7 @@ impl State {
                 Instr::InitField(i) => {
                     let v = stack.pop().unwrap();
                     let mut t = stack.pop().unwrap();
-                    if let Some(t) = as_table(&mut t) {
+                    if let Some(t) = t.as_table() {
                         let key = Val::Str(Rc::new(get_string(&chunk, i as usize)));
                         t.insert(key, v)?;
                     } else {
@@ -286,7 +284,7 @@ impl State {
                 Instr::GetTable => {
                     let key = stack.pop().unwrap();
                     let mut t = stack.pop().unwrap();
-                    if let Some(t) = as_table(&mut t) {
+                    if let Some(t) = t.as_table() {
                         let val = t.get(&key);
                         stack.push(val.clone());
                     } else {
@@ -299,7 +297,7 @@ impl State {
                     let index = stack.len() - offset as usize - 2;
                     let mut t = stack.remove(index);
                     let key = stack.remove(index);
-                    if let Some(t) = as_table(&mut t) {
+                    if let Some(t) = t.as_table() {
                         t.insert(key, val)?;
                     } else {
                         return Err(self.err(ErrorKind::TypeError));
@@ -358,15 +356,6 @@ where
 
     // This has to be outside the `if let` to avoid borrow issues.
     Err(Error::new(ErrorKind::TypeError, 0, 0))
-}
-
-fn as_table(val: &mut Val) -> Option<&mut Table> {
-    match val {
-        Val::Obj(o) => match &mut o.raw {
-            RawObject::Table(t) => Some(t),
-        },
-        _ => None,
-    }
 }
 
 /// Get all three values as numbers.

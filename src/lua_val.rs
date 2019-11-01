@@ -5,6 +5,7 @@ use std::rc::Rc;
 use crate::object::Markable;
 use crate::ObjectPtr;
 use crate::State;
+use crate::Table;
 
 type RustFunc = fn(&mut State) -> u8;
 
@@ -27,6 +28,14 @@ impl Val {
         }
     }
 
+    pub fn as_table(&mut self) -> Option<&mut Table> {
+        if let Obj(o) = self {
+            o.as_table()
+        } else {
+            None
+        }
+    }
+
     pub fn truthy(&self) -> bool {
         match self {
             Nil | Bool(false) => false,
@@ -41,7 +50,7 @@ impl Val {
             Num(_) => "Num",
             Str(_) => "string",
             RustFn(_) => "function",
-            Obj(o) => o.raw.type_string(),
+            Obj(o) => o.type_string(),
         }
     }
 }

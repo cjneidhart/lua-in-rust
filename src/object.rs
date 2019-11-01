@@ -6,28 +6,28 @@
 
 use std::cell::Cell;
 use std::fmt::{self, Display};
-use std::ops::{Deref, DerefMut, Drop};
+use std::ops::Drop;
 use std::ptr::{self, NonNull};
 
 use crate::Table;
 
 /// A wrapper around the `LuaVal`s which need to be garbage-collected.
-pub struct Object {
+struct WrappedObject {
     /// The value this object holds.
-    pub raw: RawObject,
+    raw: RawObject,
     /// The next object in the heap.
-    next: *mut Object,
+    next: *mut WrappedObject,
     /// A flag used in garbage-collection. This is behind a `Cell` so that
     /// we can alter the keys of a table.
     color: Cell<Color>,
 }
 
-pub enum RawObject {
+enum RawObject {
     Table(Table),
 }
 
 impl RawObject {
-    pub fn type_string(&self) -> &str {
+    pub fn type_string(&self) -> &'static str {
         match self {
             RawObject::Table(_) => "table",
         }
@@ -36,24 +36,33 @@ impl RawObject {
 
 /// The internal pointer type objects use to point to each other.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub struct ObjectPtr(NonNull<Object>);
-
-impl Deref for ObjectPtr {
-    type Target = Object;
-    fn deref(&self) -> &Object {
-        unsafe { self.0.as_ref() }
-    }
+pub struct ObjectPtr {
+    ptr: NonNull<WrappedObject>,
 }
 
-impl DerefMut for ObjectPtr {
-    fn deref_mut(&mut self) -> &mut Object {
-        unsafe { self.0.as_mut() }
+impl ObjectPtr {
+    pub fn type_string(&self) -> &'static str {
+        self.deref().raw.type_string()
+    }
+
+    pub fn as_table(&mut self) -> Option<&mut Table> {
+        match &mut self.deref_mut().raw {
+            RawObject::Table(t) => Some(t),
+        }
+    }
+
+    fn deref(&self) -> &WrappedObject {
+        unsafe { self.ptr.as_ref() }
+    }
+
+    fn deref_mut(&mut self) -> &mut WrappedObject {
+        unsafe { self.ptr.as_mut() }
     }
 }
 
 impl Display for ObjectPtr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "table: {:p}", self.0)
+        write!(f, "table: {:p}", self.ptr)
     }
 }
 
@@ -66,7 +75,7 @@ enum Color {
 /// A collection of objects which need to be garbage-collected.
 pub struct GcHeap {
     /// The start of the linked list which contains every Object.
-    start: *mut Object,
+    start: *mut WrappedObject,
     /// The number of objects currently in the heap.
     size: usize,
     /// When the heap grows this large, run the GC.
@@ -77,7 +86,7 @@ impl GcHeap {
     pub fn new_table(&mut self, roots: &[impl Markable]) -> ObjectPtr {
         self.check_size(roots);
         let table = Table::default();
-        let new_object = Object {
+        let new_object = WrappedObject {
             next: self.start,
             color: Cell::new(Color::Unmarked),
             raw: RawObject::Table(table),
@@ -85,7 +94,9 @@ impl GcHeap {
         let boxed = Box::new(new_object);
         let raw_ptr = Box::into_raw(boxed);
         // Pointers from Box::into_raw are guaranteed to not be null.
-        let obj_ptr = ObjectPtr(NonNull::new(raw_ptr).unwrap());
+        let obj_ptr = ObjectPtr {
+            ptr: NonNull::new(raw_ptr).unwrap(),
+        };
 
         self.start = raw_ptr;
         self.size += 1;
@@ -161,7 +172,7 @@ pub trait Markable {
     fn mark_reachable(&self);
 }
 
-impl Markable for Object {
+impl Markable for WrappedObject {
     fn mark_reachable(&self) {
         if let Color::Unmarked = self.color.get() {
             self.color.set(Color::Reachable);
@@ -175,5 +186,11 @@ impl Markable for RawObject {
         match self {
             RawObject::Table(tbl) => tbl.mark_reachable(),
         }
+    }
+}
+
+impl Markable for ObjectPtr {
+    fn mark_reachable(&self) {
+        self.deref().mark_reachable()
     }
 }
