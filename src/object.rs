@@ -41,7 +41,7 @@ pub struct ObjectPtr {
 }
 
 impl ObjectPtr {
-    pub fn type_string(&self) -> &'static str {
+    pub fn type_string(self) -> &'static str {
         self.deref().raw.type_string()
     }
 

@@ -29,7 +29,7 @@ pub struct Error {
 impl ErrorKind {
     pub fn is_recoverable(&self) -> bool {
         match self {
-            ErrorKind::UnclosedString | ErrorKind::UnexpectedEof | ErrorKind::UnexpectedTok => true,
+            ErrorKind::UnclosedString | ErrorKind::UnexpectedEof => true,
             _ => false,
         }
     }

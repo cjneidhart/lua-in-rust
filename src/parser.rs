@@ -120,7 +120,12 @@ impl<'a> Parser<'a> {
     }
 
     fn err_unexpected(&self, token: Token, _expected: TokenType) -> Error {
-        self.error_at(ErrorKind::UnexpectedTok, token.start)
+        let error_kind = if token.typ == TokenType::EndOfFile {
+            ErrorKind::UnexpectedEof
+        } else {
+            ErrorKind::UnexpectedTok
+        };
+        self.error_at(error_kind, token.start)
     }
 
     fn get_text(&self, token: Token) -> String {
