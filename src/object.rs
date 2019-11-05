@@ -83,8 +83,7 @@ pub struct GcHeap {
 }
 
 impl GcHeap {
-    pub fn new_table(&mut self, roots: &[impl Markable]) -> ObjectPtr {
-        self.check_size(roots);
+    pub fn new_table(&mut self) -> ObjectPtr {
         let table = Table::default();
         let new_object = WrappedObject {
             next: self.start,
@@ -104,16 +103,12 @@ impl GcHeap {
         obj_ptr
     }
 
-    /// Run the garbage-collector
-    pub fn collect(&mut self, roots: &[impl Markable]) {
+    /// Run the garbage-collector.
+    /// Make sure you mark all the roots before calling this function.
+    pub fn collect(&mut self) {
         if option_env!("LUA_DEBUG_GC").is_some() {
             println!("Running garbage collector");
             println!("Initial size: {}", self.size);
-        }
-
-        // TODO also mark the global variables.
-        for val in roots {
-            val.mark_reachable();
         }
 
         let mut next_ptr_ref = &mut self.start;
@@ -139,10 +134,8 @@ impl GcHeap {
         self.threshold = self.size * 2;
     }
 
-    fn check_size(&mut self, roots: &[impl Markable]) {
-        if self.size >= self.threshold {
-            self.collect(roots);
-        }
+    pub fn is_full(&self) -> bool {
+        self.size >= self.threshold
     }
 }
 

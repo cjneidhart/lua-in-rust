@@ -1,6 +1,6 @@
-use crate::object::Markable;
 use crate::Error;
 use crate::ErrorKind;
+use crate::Markable;
 use crate::Result;
 use crate::Val;
 

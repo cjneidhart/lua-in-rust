@@ -13,6 +13,7 @@ use crate::Error;
 use crate::ErrorKind;
 use crate::GcHeap;
 use crate::Instr;
+use crate::Markable;
 use crate::Result;
 use crate::Val;
 
@@ -22,6 +23,21 @@ pub struct State {
     // This field is only used by external functions.
     pub locals: Vec<Val>,
     heap: GcHeap,
+}
+
+impl Markable for State {
+    fn mark_reachable(&self) {
+        // let iter = self.globals.values().chain(self.locals.iter());
+        // for val in iter {
+        //     val.mark_reachable();
+        // }
+        for val in self.globals.values() {
+            val.mark_reachable();
+        }
+        for val in self.locals.iter() {
+            val.mark_reachable();
+        }
+    }
 }
 
 impl State {
@@ -237,7 +253,15 @@ impl State {
                 }
 
                 Instr::NewTable => {
-                    let obj_ptr = self.heap.new_table(&stack[..]);
+                    // let obj_ptr = self.heap.new_table(&stack[..]);
+                    if self.heap.is_full() {
+                        self.mark_reachable();
+                        for val in &stack {
+                            val.mark_reachable();
+                        }
+                        self.heap.collect();
+                    }
+                    let obj_ptr = self.heap.new_table();
                     let val = Val::Obj(obj_ptr);
                     stack.push(val);
                 }

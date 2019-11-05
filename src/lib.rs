@@ -10,7 +10,7 @@ mod vm;
 use error::{Error, ErrorKind};
 use instr::Instr;
 use lua_val::Val;
-use object::{GcHeap, ObjectPtr};
+use object::{GcHeap, Markable, ObjectPtr};
 use table::Table;
 
 pub use compiler::Chunk;

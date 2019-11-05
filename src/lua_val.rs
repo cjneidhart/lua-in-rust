@@ -2,7 +2,7 @@ use std::fmt::{self, Debug, Display, Formatter};
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
-use crate::object::Markable;
+use crate::Markable;
 use crate::ObjectPtr;
 use crate::State;
 use crate::Table;
