@@ -2,26 +2,15 @@ use std::mem::swap;
 use std::str;
 use std::u8;
 
-use crate::lexer::TokenStream;
 use crate::Error;
 use crate::ErrorKind;
 use crate::Instr;
 use crate::Result;
-use crate::Token;
-use crate::TokenType;
 
-#[derive(Debug, PartialEq)]
-pub struct Chunk {
-    pub code: Vec<Instr>,
-    pub number_literals: Vec<f64>,
-    pub string_literals: Vec<String>,
-    pub num_locals: u8,
-}
-
-pub fn parse_str(source: impl AsRef<str>) -> Result<Chunk> {
-    let parser = Parser::new(source.as_ref());
-    parser.parse_chunk()
-}
+use super::lexer::TokenStream;
+use super::Chunk;
+use super::Token;
+use super::TokenType;
 
 /// Tracks the current state, to make parsing easier.
 #[derive(Debug)]
@@ -55,14 +44,13 @@ enum PrefixExp {
     Parenthesized,
 }
 
-impl<'a> Parser<'a> {
-    /// Basic constructor
-    fn new(source: &'a str) -> Self {
-        let tokens = TokenStream::new(source);
-        Parser::from_token_stream(source, tokens)
-    }
+pub fn parse_token_stream<'a>(source: &'a str, tokens: TokenStream<'a>) -> Result<Chunk> {
+    let parser = Parser::from_token_stream(source, tokens);
+    parser.parse()
+}
 
-    fn from_token_stream(source: &'a str, tokens: TokenStream<'a>) -> Self {
+impl<'a> Parser<'a> {
+    pub fn from_token_stream(source: &'a str, tokens: TokenStream<'a>) -> Self {
         Parser {
             input: tokens,
             text: source,
@@ -73,6 +61,10 @@ impl<'a> Parser<'a> {
             locals: Vec::new(),
             num_locals: 0,
         }
+    }
+
+    pub fn parse(self) -> Result<Chunk> {
+        self.parse_chunk()
     }
 
     // Helper functions
@@ -872,7 +864,8 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::super::parse_str;
+    use super::Chunk;
     use crate::instr::Instr::{self, *};
 
     fn check_it(input: &str, output: Chunk) {

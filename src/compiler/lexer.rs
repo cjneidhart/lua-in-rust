@@ -6,8 +6,9 @@ use std::str::CharIndices;
 use crate::Error;
 use crate::ErrorKind;
 use crate::Result;
-use crate::Token;
-use crate::TokenType::{self, *};
+
+use super::Token;
+use super::TokenType::{self, *};
 
 /// A `TokenStream` is a wrapper around a `Lexer`. It provides a lookahead buffer and several
 /// helper methods.

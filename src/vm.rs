@@ -6,8 +6,8 @@ use std::io;
 use std::ops::{Add, Div, Mul, Rem, Sub};
 use std::rc::Rc;
 
+use crate::compiler;
 use crate::lua_std;
-use crate::parser;
 use crate::Chunk;
 use crate::Error;
 use crate::ErrorKind;
@@ -47,7 +47,7 @@ impl State {
                     return Err(Error::from_io_error(e));
                 }
             }
-            match parser::parse_str(&buffer) {
+            match compiler::parse_str(&buffer) {
                 Err(ref e) if e.is_recoverable() => {
                     continue;
                 }
@@ -56,11 +56,6 @@ impl State {
                 }
             }
         }
-    }
-
-    pub fn loadstring(&mut self, source: &str) -> Result<()> {
-        let chunk = parser::parse_str(source)?;
-        self.eval_chunk(chunk)
     }
 
     fn err(&mut self, kind: ErrorKind) -> Error {
@@ -571,7 +566,7 @@ mod tests {
             for i = 1, 3 do
                 a = a + i
             end";
-        let chunk = parser::parse_str(&text).unwrap();
+        let chunk = compiler::parse_str(&text).unwrap();
         let mut state = State::new();
         state.eval_chunk(chunk).unwrap();
         let a = state.globals.get("a").unwrap().as_num().unwrap();
