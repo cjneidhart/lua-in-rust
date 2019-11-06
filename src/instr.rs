@@ -156,4 +156,7 @@ pub enum Instr {
     /// Applies the unary negation operator to the value at the top of the
     /// stack.
     Negate,
+
+    /// Return from the chunk.
+    Return,
 }
