@@ -23,3 +23,9 @@ pub fn run_string<S: AsRef<str>>(src: S) -> Result<()> {
     let mut state = vm::State::new();
     state.eval_chunk(chunk)
 }
+
+pub fn run_file(filename: impl AsRef<std::path::Path>) -> Result<()> {
+    use std::fs::read_to_string;
+    let text = read_to_string(filename.as_ref()).map_err(Error::from_io_error)?;
+    run_string(text)
+}
