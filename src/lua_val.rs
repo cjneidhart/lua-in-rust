@@ -3,10 +3,11 @@ use std::hash::{Hash, Hasher};
 
 use crate::Markable;
 use crate::ObjectPtr;
+use crate::Result;
 use crate::State;
 use crate::Table;
 
-type RustFunc = fn(&mut State) -> u8;
+type RustFunc = fn(&mut State) -> Result<u8>;
 
 #[derive(Clone)]
 pub enum Val {

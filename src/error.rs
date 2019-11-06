@@ -3,6 +3,7 @@ use std::io;
 
 #[derive(Debug)]
 pub enum ErrorKind {
+    AssertionFail,
     BadNumber,
     Complexity,
     InvalidCharacter,
@@ -39,6 +40,7 @@ impl fmt::Display for ErrorKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use ErrorKind::*;
         match self {
+            AssertionFail => write!(f, "assertion failed!"),
             BadNumber => write!(f, "malformed number"),
             Complexity => write!(f, "complexity"),
             InvalidCharacter => write!(f, "invalid character"),

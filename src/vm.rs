@@ -99,7 +99,7 @@ impl State {
                     let f = frame.stack.pop().unwrap();
                     if let Val::RustFn(func) = f {
                         self.frames.push(frame);
-                        func(self);
+                        func(self)?;
                         frame = self.frames.pop().unwrap();
                         frame.stack.append(&mut self.locals);
                     } else {
@@ -136,7 +136,7 @@ impl State {
         }))
     }
 
-    fn error(&mut self, kind: ErrorKind) -> Error {
+    pub fn error(&mut self, kind: ErrorKind) -> Error {
         // TODO actually find position
         let pos = 0;
         let column = 0;
