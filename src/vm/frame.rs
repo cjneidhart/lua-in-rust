@@ -1,5 +1,4 @@
 use std::ops;
-use std::rc::Rc;
 
 use crate::Chunk;
 use crate::Error;
@@ -11,9 +10,14 @@ use crate::Val;
 
 /// A `Frame` represents a single stack-frame of a Lua function.
 pub struct Frame {
+    /// The chunk being executed
     pub chunk: Chunk,
+    /// The stack of local variables and temp values
     pub stack: Vec<Val>,
+    /// The index of the next (not current) instruction
     ip: usize,
+    /// The chunk's literal strings, pre-allocated; guaranteed to be strings.
+    string_literals: Vec<Val>,
 }
 
 /// Although `Frame` manages most of the core evaluation, sometimes it needs to
@@ -26,7 +30,10 @@ pub enum Action {
     /// Get the given string from this frame, and the value ontop of this
     /// frame's stack. Use those to assign to a global variable.
     SetGlobal(u8),
-    /// Allocate a new table. Only the VM can do this, since it might trigger
+    /// Allocate a new string. Only the VM can do this, since it might trigger
+    /// a garbage collection.
+    AllocString(String),
+    /// Allocate an empty table. Only the VM can do this, since it might trigger
     /// a garbage collection.
     AllocTable,
     /// Call another function. The single parameter to this variant is how many
@@ -39,13 +46,18 @@ pub enum Action {
 
 impl Frame {
     /// Create a new Frame.
-    pub fn new(chunk: Chunk) -> Self {
+    pub fn new(chunk: Chunk, string_literals: Vec<Val>) -> Self {
         let mut stack = Vec::new();
         for _ in 0..(chunk.num_locals) {
             stack.push(Val::Nil);
         }
         let ip = 0;
-        Self { chunk, stack, ip }
+        Self {
+            chunk,
+            stack,
+            ip,
+            string_literals,
+        }
     }
 
     /// Start evaluating instructions from the current position.
@@ -118,8 +130,7 @@ impl Frame {
                 }
                 Instr::PushString(i) => {
                     let s = self.get_string_constant(i);
-                    let rc = Rc::new(s.into());
-                    self.stack.push(Val::Str(rc));
+                    self.stack.push(s);
                 }
 
                 // Arithmetic
@@ -165,7 +176,10 @@ impl Frame {
                 Instr::SetTable(offset) => self.instr_set_table(offset)?,
 
                 // Misc.
-                Instr::Concat => self.instr_concat()?,
+                Instr::Concat => {
+                    let s = self.instr_concat()?;
+                    return Ok(Action::AllocString(s));
+                }
                 Instr::Print => {
                     println!("{}", self.pop_val());
                 }
@@ -175,7 +189,7 @@ impl Frame {
         }
     }
 
-    // helpers
+    // Helper methods
 
     fn error(&mut self, _kind: ErrorKind) -> Error {
         unimplemented!();
@@ -207,8 +221,8 @@ impl Frame {
         self.chunk.number_literals[i as usize]
     }
 
-    fn get_string_constant(&self, i: u8) -> &str {
-        self.chunk.string_literals[i as usize].as_str()
+    fn get_string_constant(&self, i: u8) -> Val {
+        self.string_literals[i as usize].clone()
     }
 
     fn jump(&mut self, offset: isize) {
@@ -217,14 +231,6 @@ impl Frame {
 
     fn pop_num(&mut self) -> Result<f64> {
         self.pop_val().as_num().ok_or_else(|| self.type_error())
-    }
-
-    fn pop_string(&mut self) -> Result<String> {
-        if let Val::Str(s) = self.pop_val() {
-            Ok(String::clone(&s))
-        } else {
-            Err(self.type_error())
-        }
     }
 
     fn pop_val(&mut self) -> Val {
@@ -237,13 +243,20 @@ impl Frame {
 
     // Instruction-specific methods
 
-    fn instr_concat(&mut self) -> Result<()> {
-        let s2 = self.pop_string()?;
-        let mut s1 = self.pop_string()?;
-        s1 += &s2;
-        let val = Val::Str(Rc::new(s1));
-        self.stack.push(val);
-        Ok(())
+    /// Pop two values from the stack and concatenate them. Instead of pushing
+    /// the result to the stack immediately, this function returns the `String`
+    /// so the VM can properly allocate it.
+    fn instr_concat(&mut self) -> Result<String> {
+        let val2 = self.pop_val();
+        let val1 = self.pop_val();
+        if let (Some(s1), Some(s2)) = (val1.as_string(), val2.as_string()) {
+            let mut new_str = String::new();
+            new_str.push_str(s1);
+            new_str.push_str(s2);
+            Ok(new_str)
+        } else {
+            Err(self.type_error())
+        }
     }
 
     fn instr_for_prep(&mut self, local_slot: u8, body_length: usize) -> Result<()> {
@@ -278,7 +291,7 @@ impl Frame {
     fn instr_get_field(&mut self, field_id: u8) -> Result<()> {
         let mut tbl_val = self.pop_val();
         if let Some(t) = tbl_val.as_table() {
-            let key = Val::Str(Rc::new(self.get_string_constant(field_id).into()));
+            let key = self.get_string_constant(field_id);
             let val = t.get(&key);
             self.stack.push(val.clone());
             Ok(())
@@ -302,7 +315,7 @@ impl Frame {
         let val = self.pop_val();
         let mut tbl = self.pop_val();
         let t = tbl.as_table().unwrap();
-        let key = Val::Str(Rc::new(self.get_string_constant(i).into()));
+        let key = self.get_string_constant(i);
         t.insert(key, val)?;
         self.stack.push(tbl);
         Ok(())
@@ -324,7 +337,7 @@ impl Frame {
         let idx = self.stack.len() - stack_offset as usize - 1;
         let mut tbl = self.stack.remove(idx);
         if let Some(t) = tbl.as_table() {
-            let key = Val::Str(Rc::new(self.get_string_constant(field_id).into()));
+            let key = self.get_string_constant(field_id);
             t.insert(key, val)?;
             Ok(())
         } else {
@@ -348,8 +361,9 @@ impl Frame {
 
 impl Markable for Frame {
     fn mark_reachable(&self) {
-        for val in &self.stack {
-            val.mark_reachable();
+        let iter = self.stack.iter().chain(&self.string_literals);
+        for val in iter {
+            val.mark_reachable()
         }
     }
 }

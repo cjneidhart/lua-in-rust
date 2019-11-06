@@ -71,17 +71,20 @@ impl State {
         }
     }
 
-    fn error(&mut self, kind: ErrorKind) -> Error {
-        // TODO actually find position
-        let pos = 0;
-        let column = 0;
-        Error::new(kind, pos, column)
-    }
-
     pub fn eval_chunk(&mut self, chunk: Chunk) -> Result<()> {
-        let mut frame = Frame::new(chunk);
+        let strings = self.alloc_strings(&chunk.string_literals);
+        let mut frame = Frame::new(chunk, strings);
         loop {
             match frame.eval()? {
+                Action::AllocString(s) => {
+                    if self.heap.is_full() {
+                        self.mark_reachable();
+                        frame.mark_reachable();
+                        self.heap.collect();
+                    }
+                    let val = Val::Obj(self.heap.new_string(s));
+                    frame.stack.push(val);
+                }
                 Action::AllocTable => {
                     if self.heap.is_full() {
                         self.mark_reachable();
@@ -119,12 +122,30 @@ impl State {
             }
         }
     }
+
+    /// Allocate every string in `strs` on the heap.
+    /// The `Val`s returned are always strings.
+    fn alloc_strings(&mut self, strs: &[impl ToString]) -> Vec<Val> {
+        use std::iter::FromIterator;
+        Vec::from_iter(strs.iter().map(|s| {
+            if self.heap.is_full() {
+                self.mark_reachable();
+                self.heap.collect();
+            }
+            Val::Obj(self.heap.new_string(s.to_string()))
+        }))
+    }
+
+    fn error(&mut self, kind: ErrorKind) -> Error {
+        // TODO actually find position
+        let pos = 0;
+        let column = 0;
+        Error::new(kind, pos, column)
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::rc::Rc;
-
     use super::State;
 
     use crate::compiler::parse_str;
@@ -150,10 +171,8 @@ mod tests {
             num_locals: 0,
         };
         state.eval_chunk(input).unwrap();
-        assert_eq!(
-            Val::Str(Rc::new("ab".to_string())),
-            *state.globals.get("key").unwrap()
-        );
+        let val = state.globals.get("key").unwrap();
+        assert_eq!("ab".to_string(), val.as_string().unwrap());
     }
 
     #[test]

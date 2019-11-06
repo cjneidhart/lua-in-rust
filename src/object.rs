@@ -24,11 +24,13 @@ struct WrappedObject {
 
 enum RawObject {
     Table(Table),
+    Str(String),
 }
 
 impl RawObject {
     pub fn type_string(&self) -> &'static str {
         match self {
+            RawObject::Str(_) => "string",
             RawObject::Table(_) => "table",
         }
     }
@@ -41,14 +43,22 @@ pub struct ObjectPtr {
 }
 
 impl ObjectPtr {
-    pub fn type_string(self) -> &'static str {
-        self.deref().raw.type_string()
+    pub fn as_string(&self) -> Option<&str> {
+        match &self.deref().raw {
+            RawObject::Str(s) => Some(s),
+            _ => None,
+        }
     }
 
     pub fn as_table(&mut self) -> Option<&mut Table> {
         match &mut self.deref_mut().raw {
             RawObject::Table(t) => Some(t),
+            _ => None,
         }
+    }
+
+    pub fn type_string(self) -> &'static str {
+        self.deref().raw.type_string()
     }
 
     fn deref(&self) -> &WrappedObject {
@@ -62,7 +72,10 @@ impl ObjectPtr {
 
 impl Display for ObjectPtr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "table: {:p}", self.ptr)
+        match &self.deref().raw {
+            RawObject::Str(s) => Display::fmt(s, f),
+            RawObject::Table(_) => write!(f, "table: {:p}", self.ptr),
+        }
     }
 }
 
@@ -83,26 +96,6 @@ pub struct GcHeap {
 }
 
 impl GcHeap {
-    pub fn new_table(&mut self) -> ObjectPtr {
-        let table = Table::default();
-        let new_object = WrappedObject {
-            next: self.start,
-            color: Cell::new(Color::Unmarked),
-            raw: RawObject::Table(table),
-        };
-        let boxed = Box::new(new_object);
-        let raw_ptr = Box::into_raw(boxed);
-        // Pointers from Box::into_raw are guaranteed to not be null.
-        let obj_ptr = ObjectPtr {
-            ptr: NonNull::new(raw_ptr).unwrap(),
-        };
-
-        self.start = raw_ptr;
-        self.size += 1;
-
-        obj_ptr
-    }
-
     /// Run the garbage-collector.
     /// Make sure you mark all the roots before calling this function.
     pub fn collect(&mut self) {
@@ -136,6 +129,35 @@ impl GcHeap {
 
     pub fn is_full(&self) -> bool {
         self.size >= self.threshold
+    }
+
+    pub fn new_string(&mut self, s: String) -> ObjectPtr {
+        let raw = RawObject::Str(s);
+        self.new_obj_from_raw(raw)
+    }
+
+    pub fn new_table(&mut self) -> ObjectPtr {
+        let raw = RawObject::Table(Table::default());
+        self.new_obj_from_raw(raw)
+    }
+
+    fn new_obj_from_raw(&mut self, raw: RawObject) -> ObjectPtr {
+        let new_object = WrappedObject {
+            next: self.start,
+            color: Cell::new(Color::Unmarked),
+            raw,
+        };
+        let boxed = Box::new(new_object);
+        let raw_ptr = Box::into_raw(boxed);
+        // Pointers from Box::into_raw are guaranteed to not be null.
+        let obj_ptr = ObjectPtr {
+            ptr: NonNull::new(raw_ptr).unwrap(),
+        };
+
+        self.start = raw_ptr;
+        self.size += 1;
+
+        obj_ptr
     }
 }
 
@@ -177,6 +199,7 @@ impl Markable for WrappedObject {
 impl Markable for RawObject {
     fn mark_reachable(&self) {
         match self {
+            RawObject::Str(_) => (),
             RawObject::Table(tbl) => tbl.mark_reachable(),
         }
     }

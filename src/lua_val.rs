@@ -1,6 +1,5 @@
 use std::fmt::{self, Debug, Display, Formatter};
 use std::hash::{Hash, Hasher};
-use std::rc::Rc;
 
 use crate::Markable;
 use crate::ObjectPtr;
@@ -14,7 +13,6 @@ pub enum Val {
     Nil,
     Bool(bool),
     Num(f64),
-    Str(Rc<String>),
     RustFn(RustFunc),
     Obj(ObjectPtr),
 }
@@ -25,6 +23,14 @@ impl Val {
         match self {
             Num(f) => Some(*f),
             _ => None,
+        }
+    }
+
+    pub fn as_string(&self) -> Option<&str> {
+        if let Obj(o) = self {
+            o.as_string()
+        } else {
+            None
         }
     }
 
@@ -48,7 +54,6 @@ impl Val {
             Nil => "nil",
             Bool(_) => "boolean",
             Num(_) => "Num",
-            Str(_) => "string",
             RustFn(_) => "function",
             Obj(o) => o.type_string(),
         }
@@ -61,7 +66,6 @@ impl Debug for Val {
             Nil => write!(f, "nil"),
             Bool(b) => Debug::fmt(b, f),
             Num(n) => Debug::fmt(n, f),
-            Str(s) => Debug::fmt(s, f),
             RustFn(func) => write!(f, "<function: {:p}>", func),
             Obj(o) => Debug::fmt(o, f),
         }
@@ -94,7 +98,6 @@ impl Hash for Val {
         match self {
             Nil => (),
             Bool(b) => b.hash(hasher),
-            Str(s) => s.hash(hasher),
             Obj(o) => o.hash(hasher),
             Num(n) => {
                 debug_assert!(!n.is_nan(), "Can't hash NaN");
@@ -118,7 +121,6 @@ impl PartialEq for Val {
             (Nil, Nil) => true,
             (Bool(a), Bool(b)) => a == b,
             (Num(a), Num(b)) => a == b,
-            (Str(a), Str(b)) => a == b,
             (RustFn(a), RustFn(b)) => {
                 let x = a as *const RustFunc;
                 let y = b as *const RustFunc;
