@@ -18,8 +18,8 @@ pub use vm::State;
 
 pub type Result<T> = std::result::Result<T, Error>;
 
-pub fn run_string<S: AsRef<str>>(src: S) {
+pub fn run_string<S: AsRef<str>>(src: S) -> Result<()> {
     let chunk = compiler::parse_str(src.as_ref()).unwrap();
     let mut state = vm::State::new();
-    state.eval_chunk(chunk).unwrap();
+    state.eval_chunk(chunk)
 }

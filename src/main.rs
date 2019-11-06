@@ -1,6 +1,7 @@
 use std::env::args;
 use std::fs::read_to_string;
 use std::io::{self, Write};
+use std::process::exit;
 
 use lua::State;
 
@@ -14,7 +15,11 @@ fn main() {
 
 fn run_file(filename: &str) {
     let source = read_to_string(filename).unwrap();
-    lua::run_string(source.as_str());
+    let result = lua::run_string(source.as_str());
+    if let Err(e) = result {
+        eprintln!("{}", e);
+        exit(1);
+    }
 }
 
 fn run_prompt() {
