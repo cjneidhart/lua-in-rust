@@ -26,6 +26,7 @@ pub struct Lexer<'a> {
     /// `linebreaks[i]` is the byte offset of the start of line `i`.
     linebreaks: Vec<usize>,
     iter: Peekable<CharIndices<'a>>,
+    source: &'a str,
 }
 
 impl<'a> TokenStream<'a> {
@@ -71,17 +72,6 @@ impl<'a> TokenStream<'a> {
         }
     }
 
-    //pub fn push_back(&mut self, tok: Token) {
-    //    match self.lookahead {
-    //        Some(_) => {
-    //            panic!("Can't push token back after peeking.");
-    //        }
-    //        None => {
-    //            self.lookahead = Some(tok);
-    //        }
-    //    }
-    //}
-
     pub fn line_and_column(&self, pos: usize) -> (usize, usize) {
         self.lexer.line_and_col(pos)
     }
@@ -92,6 +82,10 @@ impl<'a> TokenStream<'a> {
             None => self.lexer.pos,
         }
     }
+
+    pub fn src(&self) -> &str {
+        self.lexer.source
+    }
 }
 
 impl<'a> Lexer<'a> {
@@ -101,6 +95,7 @@ impl<'a> Lexer<'a> {
             iter: source.char_indices().peekable(),
             linebreaks,
             pos: 0,
+            source,
         }
     }
 

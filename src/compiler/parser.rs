@@ -17,16 +17,10 @@ use super::TokenType;
 struct Parser<'a> {
     /// The input token stream.
     input: TokenStream<'a>,
-    /// The bytecode for the resulting Chunk.
-    output: Vec<Instr>,
-    /// The raw source code
-    text: &'a str,
-    string_literals: Vec<String>,
-    number_literals: Vec<f64>,
+    chunk: Chunk,
+    other_chunks: Vec<Chunk>,
     nest_level: i32,
     locals: Vec<(String, i32)>,
-    /// The amount of local slots the resulting Chunk will have.
-    num_locals: u8,
 }
 
 /// This represents an expression which can appear on the left-hand side of an assignment.
@@ -44,60 +38,32 @@ enum PrefixExp {
     Parenthesized,
 }
 
-pub fn parse_token_stream<'a>(source: &'a str, tokens: TokenStream<'a>) -> Result<Chunk> {
-    let parser = Parser::from_token_stream(source, tokens);
-    parser.parse()
+pub fn parse_str(source: &str) -> Result<Chunk> {
+    let parser = Parser {
+        input: TokenStream::new(source),
+        chunk: Chunk::default(),
+        other_chunks: Vec::new(),
+        nest_level: 0,
+        locals: Vec::new(),
+    };
+    parser.parse_all()
 }
 
 impl<'a> Parser<'a> {
-    pub fn from_token_stream(source: &'a str, tokens: TokenStream<'a>) -> Self {
-        Parser {
-            input: tokens,
-            text: source,
-            output: Vec::new(),
-            string_literals: Vec::new(),
-            number_literals: Vec::new(),
-            nest_level: 0,
-            locals: Vec::new(),
-            num_locals: 0,
-        }
-    }
-
-    pub fn parse(self) -> Result<Chunk> {
-        self.parse_chunk()
-    }
-
     // Helper functions
 
-    /// Adds an instruction to the output.
-    fn push(&mut self, instr: Instr) {
-        self.output.push(instr);
-    }
-
-    /// Pulls a token off the input and checks it against `tok`. If it doesn't
-    /// match, it returns an `Err`.
-    fn expect(&mut self, expected: TokenType) -> Result<Token> {
-        let token = self.input.next()?;
-        if token.typ == expected {
-            Ok(token)
+    /// Creates a new local slot at the current nest_level.
+    /// Fail if we have exceeded the maximum number of locals.
+    fn add_local(&mut self, name: &str) -> Result<()> {
+        if self.locals.len() == u8::MAX as usize {
+            Err(self.error(ErrorKind::TooManyLocals))
         } else {
-            Err(self.err_unexpected(token, expected))
+            self.locals.push((name.to_string(), self.nest_level));
+            if self.locals.len() > self.chunk.num_locals as usize {
+                self.chunk.num_locals += 1;
+            }
+            Ok(())
         }
-    }
-
-    /// Expect an identifier token and get the actual identifier from the text.
-    fn expect_identifier(&mut self) -> Result<String> {
-        let token = self.expect(TokenType::Identifier)?;
-        let Token { start, len, .. } = token;
-        let end = start + len as usize;
-        let name = &self.text[start..end];
-        Ok(name.to_string())
-    }
-
-    /// Converts a literal string's offsets into a real String.
-    fn get_string_from_text(&self, start: usize, len: u32) -> String {
-        // Chop off the quotes
-        self.text[(start + 1)..(start + len as usize - 1)].to_string()
     }
 
     // TODO: rename to error_here
@@ -120,33 +86,97 @@ impl<'a> Parser<'a> {
         self.error_at(error_kind, token.start)
     }
 
+    /// Pulls a token off the input and checks it against `tok`. If it doesn't
+    /// match, it returns an `Err`.
+    fn expect(&mut self, expected: TokenType) -> Result<Token> {
+        let token = self.input.next()?;
+        if token.typ == expected {
+            Ok(token)
+        } else {
+            Err(self.err_unexpected(token, expected))
+        }
+    }
+
+    /// Expect an identifier token and get the actual identifier from the text.
+    fn expect_identifier(&mut self) -> Result<String> {
+        let token = self.expect(TokenType::Identifier)?;
+        let Token { start, len, .. } = token;
+        let end = start + len as usize;
+        let name = &self.src()[start..end];
+        Ok(name.to_string())
+    }
+
+    fn find_or_add_string(&mut self, string: String) -> Result<u8> {
+        // TODO: Make this work using &str without always creating a new String.
+        find_or_add(&mut self.chunk.string_literals, string)
+            .ok_or_else(|| self.error(ErrorKind::TooManyStrings))
+    }
+
+    fn find_or_add_number(&mut self, num: f64) -> Result<u8> {
+        find_or_add(&mut self.chunk.number_literals, num)
+            .ok_or_else(|| self.error(ErrorKind::TooManyNumbers))
+    }
+
+    /// Converts a literal string's offsets into a real String.
+    fn get_string_from_text(&self, start: usize, len: u32) -> String {
+        // Chop off the quotes
+        self.input.src()[(start + 1)..(start + len as usize - 1)].to_string()
+    }
+
     fn get_text(&self, token: Token) -> String {
-        self.text[token.range()].to_string()
+        self.src()[token.range()].to_string()
+    }
+
+    /// Lower the nesting level by one, discarding any locals from that block.
+    fn level_down(&mut self) {
+        while let Some((_, lvl)) = self.locals.last() {
+            if *lvl == self.nest_level {
+                self.locals.pop();
+            } else {
+                break;
+            }
+        }
+        self.nest_level -= 1;
+    }
+
+    /// Adds an instruction to the output.
+    fn push(&mut self, instr: Instr) {
+        self.chunk.code.push(instr);
+    }
+
+    fn src(&self) -> &str {
+        self.input.src()
     }
 
     // Actual parsing
 
-    /// Entry point for the parser.
-    fn parse_chunk(mut self) -> Result<Chunk> {
-        self.parse_statements()?;
+    fn parse_all(mut self) -> Result<Chunk> {
+        let c = self.parse_chunk();
         let token = self.input.next()?;
         if let TokenType::EndOfFile = token.typ {
-            self.push(Instr::Return);
-            let c = Chunk {
-                code: self.output,
-                number_literals: self.number_literals,
-                string_literals: self.string_literals,
-                num_locals: self.num_locals,
-            };
-
-            if option_env!("LUA_DEBUG_PARSER").is_some() {
-                println!("Compiled chunk: {:#?}", &c);
-            }
-
-            Ok(c)
+            c
         } else {
             Err(self.err_unexpected(token, TokenType::EndOfFile))
         }
+    }
+
+    fn parse_chunk(&mut self) -> Result<Chunk> {
+        {
+            let mut c = Chunk::default();
+            swap(&mut c, &mut self.chunk);
+            self.other_chunks.push(c);
+        }
+        self.parse_statements()?;
+        self.push(Instr::Return);
+
+        let mut c = self.other_chunks.pop().unwrap();
+        swap(&mut c, &mut self.chunk);
+
+        if option_env!("LUA_DEBUG_PARSER").is_some() {
+            println!("Compiled chunk: {:#?}", &c);
+        }
+
+        Ok(c)
     }
 
     fn parse_statements(&mut self) -> Result<()> {
@@ -327,17 +357,17 @@ impl<'a> Parser<'a> {
 
         // The ForPrep command pulls three values off the stack and places them
         // into locals to use in the loop.
-        let loop_start_instr_index = self.output.len();
+        let loop_start_instr_index = self.chunk.code.len();
         self.push(Instr::ForPrep(current_local_slot, -1));
 
         // body
         self.parse_statements()?;
         self.expect(TokenType::End)?;
-        let body_length = (self.output.len() - loop_start_instr_index) as isize;
+        let body_length = (self.chunk.code.len() - loop_start_instr_index) as isize;
         self.push(Instr::ForLoop(current_local_slot, -(body_length)));
 
         // Correct the ForPrep instruction.
-        self.output[loop_start_instr_index] = Instr::ForPrep(current_local_slot, body_length);
+        self.chunk.code[loop_start_instr_index] = Instr::ForPrep(current_local_slot, body_length);
 
         Ok(())
     }
@@ -369,26 +399,14 @@ impl<'a> Parser<'a> {
         Ok(())
     }
 
-    /// Lower the nesting level by one, discarding any locals from that block.
-    fn level_down(&mut self) {
-        while let Some((_, lvl)) = self.locals.last() {
-            if *lvl == self.nest_level {
-                self.locals.pop();
-            } else {
-                break;
-            }
-        }
-        self.nest_level -= 1;
-    }
-
     fn parse_repeat(&mut self) -> Result<()> {
         self.input.next()?; // `repeat` keyword
         self.nest_level += 1;
-        let body_start = self.output.len() as isize;
+        let body_start = self.chunk.code.len() as isize;
         self.parse_statements()?;
         self.expect(TokenType::Until)?;
         self.parse_expr()?;
-        let expr_end = self.output.len() as isize;
+        let expr_end = self.chunk.code.len() as isize;
         self.push(Instr::BranchFalse(body_start - (expr_end + 1)));
         self.level_down();
         Ok(())
@@ -397,19 +415,19 @@ impl<'a> Parser<'a> {
     fn parse_while(&mut self) -> Result<()> {
         self.input.next()?; // `while` keyword
         self.nest_level += 1;
-        let condition_start = self.output.len() as isize;
+        let condition_start = self.chunk.code.len() as isize;
         self.parse_expr()?;
         self.expect(TokenType::Do)?;
         let mut old_output = Vec::new();
-        swap(&mut self.output, &mut old_output);
+        swap(&mut self.chunk.code, &mut old_output);
         self.parse_statements()?;
-        old_output.push(Instr::BranchFalse(self.output.len() as isize + 1));
-        old_output.append(&mut self.output);
-        self.output = old_output;
+        old_output.push(Instr::BranchFalse(self.chunk.code.len() as isize + 1));
+        old_output.append(&mut self.chunk.code);
+        self.chunk.code = old_output;
 
         self.expect(TokenType::End)?;
         self.push(Instr::Jump(
-            condition_start - (self.output.len() as isize + 1),
+            condition_start - (self.chunk.code.len() as isize + 1),
         ));
         self.level_down();
 
@@ -428,21 +446,21 @@ impl<'a> Parser<'a> {
         self.expect(TokenType::Then)?;
         self.nest_level += 1;
 
-        let branch_instr_index = self.output.len();
+        let branch_instr_index = self.chunk.code.len();
         self.push(Instr::BranchFalse(0));
 
         self.parse_statements()?;
-        let mut branch_target = self.output.len();
+        let mut branch_target = self.chunk.code.len();
 
         self.close_if_arm()?;
-        if self.output.len() > branch_target {
+        if self.chunk.code.len() > branch_target {
             // If the size has changed, the first instruction added was a
             // Jump, so we need to skip it.
             branch_target += 1;
         }
 
         let branch_offset = (branch_target - branch_instr_index - 1) as isize;
-        self.output[branch_instr_index] = Instr::BranchFalse(branch_offset);
+        self.chunk.code[branch_instr_index] = Instr::BranchFalse(branch_offset);
         Ok(())
     }
 
@@ -463,16 +481,16 @@ impl<'a> Parser<'a> {
     /// Parse an `elseif` or `else` block, and handle the Jump instruction for
     /// then end of the preceding block.
     fn parse_else_or_elseif(&mut self, elseif: bool) -> Result<()> {
-        let jump_instr_index = self.output.len();
+        let jump_instr_index = self.chunk.code.len();
         self.push(Instr::Jump(0));
         if elseif {
             self.parse_if_arm()?;
         } else {
             self.parse_else()?;
         }
-        let new_len = self.output.len();
+        let new_len = self.chunk.code.len();
         let jump_len = new_len - jump_instr_index - 1;
-        self.output[jump_instr_index] = Instr::Jump(jump_len as isize);
+        self.chunk.code[jump_instr_index] = Instr::Jump(jump_len as isize);
         Ok(())
     }
 
@@ -519,13 +537,13 @@ impl<'a> Parser<'a> {
         self.parse_and()?;
 
         while self.input.try_pop(TokenType::Or)?.is_some() {
-            let branch_instr_index = self.output.len();
+            let branch_instr_index = self.chunk.code.len();
             self.push(Instr::BranchTrueKeep(0));
             // If we don't short-circuit, pop the left-hand expression
             self.push(Instr::Pop);
             self.parse_and()?;
-            let branch_offset = (self.output.len() - branch_instr_index - 1) as isize;
-            self.output[branch_instr_index] = Instr::BranchTrueKeep(branch_offset);
+            let branch_offset = (self.chunk.code.len() - branch_instr_index - 1) as isize;
+            self.chunk.code[branch_instr_index] = Instr::BranchTrueKeep(branch_offset);
         }
 
         Ok(())
@@ -536,13 +554,13 @@ impl<'a> Parser<'a> {
         self.parse_comparison()?;
 
         while self.input.try_pop(TokenType::And)?.is_some() {
-            let branch_instr_index = self.output.len();
+            let branch_instr_index = self.chunk.code.len();
             self.push(Instr::BranchFalseKeep(0));
             // If we don't short-circuit, pop the left-hand expression
             self.push(Instr::Pop);
             self.parse_comparison()?;
-            let branch_offset = (self.output.len() - branch_instr_index - 1) as isize;
-            self.output[branch_instr_index] = Instr::BranchFalseKeep(branch_offset);
+            let branch_offset = (self.chunk.code.len() - branch_instr_index - 1) as isize;
+            self.chunk.code[branch_instr_index] = Instr::BranchFalseKeep(branch_offset);
         }
 
         Ok(())
@@ -783,7 +801,7 @@ impl<'a> Parser<'a> {
         let tok = self.input.next()?;
         match tok.typ {
             TokenType::Identifier => {
-                let s = &self.text[tok.range()];
+                let s = self.get_text(tok);
                 let index = self.find_or_add_string(s.to_string())?;
                 self.expect(TokenType::Assign)?;
                 self.parse_expr()?;
@@ -804,31 +822,6 @@ impl<'a> Parser<'a> {
         self.expect(TokenType::RParen)?;
         self.push(Instr::Call(num_args));
         Ok(())
-    }
-
-    /// Creates a new local slot at the current nest_level.
-    /// Fail if we have exceeded the maximum number of locals.
-    fn add_local(&mut self, name: &str) -> Result<()> {
-        if self.locals.len() == u8::MAX as usize {
-            Err(self.error(ErrorKind::TooManyLocals))
-        } else {
-            self.locals.push((name.to_string(), self.nest_level));
-            if self.locals.len() > self.num_locals as usize {
-                self.num_locals += 1;
-            }
-            Ok(())
-        }
-    }
-
-    fn find_or_add_string(&mut self, string: String) -> Result<u8> {
-        // TODO: Make this work using &str without always creating a new String.
-        find_or_add(&mut self.string_literals, string)
-            .ok_or_else(|| self.error(ErrorKind::TooManyStrings))
-    }
-
-    fn find_or_add_number(&mut self, num: f64) -> Result<u8> {
-        find_or_add(&mut self.number_literals, num)
-            .ok_or_else(|| self.error(ErrorKind::TooManyNumbers))
     }
 }
 

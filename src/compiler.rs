@@ -8,7 +8,7 @@ use crate::{Instr, Result};
 
 pub use token::{Token, TokenType};
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Default, PartialEq)]
 pub struct Chunk {
     pub code: Vec<Instr>,
     pub number_literals: Vec<f64>,
@@ -17,7 +17,5 @@ pub struct Chunk {
 }
 
 pub fn parse_str(source: impl AsRef<str>) -> Result<Chunk> {
-    let src = source.as_ref();
-    let tokens = lexer::TokenStream::new(src);
-    parser::parse_token_stream(src, tokens)
+    parser::parse_str(source.as_ref())
 }
