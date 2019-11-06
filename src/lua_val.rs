@@ -49,11 +49,13 @@ impl Val {
         }
     }
 
-    pub fn type_string(&self) -> &str {
+    /// Return the value's type, represented as a string.
+    /// Equivalent to lua's `type()` function.
+    pub fn type_string(&self) -> &'static str {
         match self {
             Nil => "nil",
             Bool(_) => "boolean",
-            Num(_) => "Num",
+            Num(_) => "number",
             RustFn(_) => "function",
             Obj(o) => o.type_string(),
         }

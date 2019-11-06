@@ -43,6 +43,8 @@ pub struct ObjectPtr {
 }
 
 impl ObjectPtr {
+    // Clippy isn't smart enough to see we need to take `self` by reference.
+    #[allow(clippy::trivially_copy_pass_by_ref)]
     pub fn as_string(&self) -> Option<&str> {
         match &self.deref().raw {
             RawObject::Str(s) => Some(s),
@@ -108,8 +110,8 @@ impl GcHeap {
         while !next_ptr_ref.is_null() {
             // From right-to-left, this unsafe block means:
             // - deref the reference (safe) to get a pointer
-            // - deref the pointer (unsafe) to get an Object
-            // - make a mutable reference to that Object
+            // - deref the pointer (unsafe) to get a WrappedObject
+            // - make a mutable reference to that WrappedObject
             let next_obj = unsafe { &mut **next_ptr_ref };
             match next_obj.color.get() {
                 Color::Reachable => {
