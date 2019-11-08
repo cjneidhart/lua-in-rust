@@ -9,6 +9,7 @@ use std::fmt::{self, Display};
 use std::ops::Drop;
 use std::ptr::{self, NonNull};
 
+use crate::Chunk;
 use crate::Table;
 
 /// A wrapper around the `LuaVal`s which need to be garbage-collected.
@@ -23,13 +24,17 @@ struct WrappedObject {
 }
 
 enum RawObject {
-    Table(Table),
+    // Wrap this in a box to reduce the memory usage. Minimal performance impact
+    // because functions are rarely accessed.
+    LuaFn(Box<Chunk>),
     Str(String),
+    Table(Table),
 }
 
 impl RawObject {
     pub fn type_string(&self) -> &'static str {
         match self {
+            RawObject::LuaFn(_) => "function",
             RawObject::Str(_) => "string",
             RawObject::Table(_) => "table",
         }
@@ -43,6 +48,13 @@ pub struct ObjectPtr {
 }
 
 impl ObjectPtr {
+    pub fn as_lua_function(self) -> Option<Chunk> {
+        match &self.deref().raw {
+            RawObject::LuaFn(chunk) => Some((**chunk).clone()),
+            _ => None,
+        }
+    }
+
     // Clippy isn't smart enough to see we need to take `self` by reference.
     #[allow(clippy::trivially_copy_pass_by_ref)]
     pub fn as_string(&self) -> Option<&str> {
@@ -75,6 +87,7 @@ impl ObjectPtr {
 impl Display for ObjectPtr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.deref().raw {
+            RawObject::LuaFn(_) => write!(f, "function: {:p}", self.ptr),
             RawObject::Str(s) => Display::fmt(s, f),
             RawObject::Table(_) => write!(f, "table: {:p}", self.ptr),
         }
@@ -131,6 +144,11 @@ impl GcHeap {
 
     pub fn is_full(&self) -> bool {
         self.size >= self.threshold
+    }
+
+    pub fn new_lua_fn(&mut self, chunk: Chunk) -> ObjectPtr {
+        let raw = RawObject::LuaFn(Box::new(chunk));
+        self.new_obj_from_raw(raw)
     }
 
     pub fn new_string(&mut self, s: String) -> ObjectPtr {
@@ -201,7 +219,7 @@ impl Markable for WrappedObject {
 impl Markable for RawObject {
     fn mark_reachable(&self) {
         match self {
-            RawObject::Str(_) => (),
+            RawObject::LuaFn(_) | RawObject::Str(_) => (),
             RawObject::Table(tbl) => tbl.mark_reachable(),
         }
     }

@@ -9,3 +9,8 @@ fn test01() -> Result<()> {
 fn test02() -> Result<()> {
     lua::run_file("tests/test02.lua")
 }
+
+#[test]
+fn test03() -> Result<()> {
+    lua::run_file("tests/test03.lua")
+}

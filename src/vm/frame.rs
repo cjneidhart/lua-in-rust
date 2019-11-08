@@ -69,6 +69,10 @@ impl Frame {
         i
     }
 
+    pub fn get_nested_chunk(&mut self, i: u8) -> Chunk {
+        self.chunk.nested[i as usize].clone()
+    }
+
     pub fn get_number_constant(&self, i: u8) -> f64 {
         self.chunk.number_literals[i as usize]
     }
@@ -83,6 +87,9 @@ impl State {
     pub fn eval(&mut self) -> Result<()> {
         loop {
             let inst = self.curr_frame.get_instr();
+            if option_env!("LUA_DEBUG_VM").is_some() {
+                println!("{:?}", inst);
+            }
             match inst {
                 // General control flow
                 Instr::Pop => {
@@ -92,7 +99,7 @@ impl State {
                 Instr::BranchFalse(ofst) => self.instr_branch(false, ofst, false),
                 Instr::BranchFalseKeep(ofst) => self.instr_branch(false, ofst, true),
                 Instr::BranchTrue(ofst) => self.instr_branch(true, ofst, false),
-                Instr::BranchTrueKeep(ofst) => self.instr_branch(true, ofst, false),
+                Instr::BranchTrueKeep(ofst) => self.instr_branch(true, ofst, true),
 
                 // Local variables
                 Instr::GetLocal(i) => {
@@ -103,12 +110,12 @@ impl State {
                     self.stack[i as usize] = self.stack.pop().unwrap();
                 }
 
-                // Actions which require help from the `State`.
                 Instr::GetGlobal(i) => self.instr_get_global(i),
                 Instr::SetGlobal(i) => self.instr_set_global(i),
-                Instr::Call(num_args) => self.call(num_args, 0)?,
-                Instr::NewTable => self.create_table(0),
 
+                // Functions
+                Instr::Closure(i) => self.instr_closure(i),
+                Instr::Call(num_args) => self.call(num_args, 0)?,
                 Instr::Return => {
                     return Ok(());
                 }
@@ -160,6 +167,7 @@ impl State {
                 Instr::Not => self.instr_not(),
 
                 // Manipulating tables
+                Instr::NewTable => self.create_table(0),
                 Instr::GetField(i) => self.instr_get_field(i)?,
                 Instr::GetTable => self.instr_get_table()?,
                 Instr::InitField(i) => self.instr_init_field(i)?,
@@ -221,6 +229,13 @@ impl State {
         if keep_cond {
             self.stack.push(val);
         }
+    }
+
+    fn instr_closure(&mut self, i: u8) {
+        self.check_heap();
+        let chunk = self.curr_frame.get_nested_chunk(i);
+        let obj = self.heap.new_lua_fn(chunk);
+        self.stack.push(Val::Obj(obj));
     }
 
     /// Pop two values from the stack and concatenate them. Instead of pushing

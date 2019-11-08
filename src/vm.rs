@@ -54,6 +54,8 @@ impl State {
             f(self).map(|n| {
                 assert!(n == 0, "Can't return values from functions yet.");
             })
+        } else if let Some(chunk) = func_val.as_lua_function() {
+            self.eval_chunk(chunk)
         } else {
             // TODO: handle this
             panic!("Tried to call something not a function.");
@@ -113,10 +115,13 @@ impl State {
         for _ in 0..(chunk.num_locals) {
             self.stack.push(Val::Nil);
         }
-        let mut new_frame = Frame::new(chunk, strings);
-        std::mem::swap(&mut new_frame, &mut self.curr_frame);
-        self.frames.push(new_frame);
-        self.eval()
+        let mut tmp_frame = Frame::new(chunk, strings);
+        std::mem::swap(&mut tmp_frame, &mut self.curr_frame);
+        self.frames.push(tmp_frame);
+        self.eval()?;
+        tmp_frame = self.frames.pop().unwrap();
+        std::mem::swap(&mut tmp_frame, &mut self.curr_frame);
+        Ok(())
     }
 
     /// Allocate every string in `strs` on the heap.

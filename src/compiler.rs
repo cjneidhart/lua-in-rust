@@ -8,7 +8,7 @@ use crate::{Instr, Result};
 
 pub use token::{Token, TokenType};
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Chunk {
     pub code: Vec<Instr>,
     pub number_literals: Vec<f64>,

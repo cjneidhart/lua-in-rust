@@ -1,6 +1,7 @@
 use std::fmt::{self, Debug, Display, Formatter};
 use std::hash::{Hash, Hasher};
 
+use crate::Chunk;
 use crate::Markable;
 use crate::ObjectPtr;
 use crate::Result;
@@ -20,6 +21,14 @@ pub enum Val {
 use Val::*;
 
 impl Val {
+    pub fn as_lua_function(&self) -> Option<Chunk> {
+        if let Obj(o) = self {
+            o.as_lua_function()
+        } else {
+            None
+        }
+    }
+
     pub fn as_num(&self) -> Option<f64> {
         match self {
             Num(f) => Some(*f),
