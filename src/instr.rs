@@ -159,4 +159,7 @@ pub enum Instr {
 
     /// Return from the chunk.
     Return,
+
+    /// Create a closure from a Chunk and push it onto the stack.
+    Closure(u8),
 }

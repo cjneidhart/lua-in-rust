@@ -180,6 +180,7 @@ mod tests {
             code: vec![PushString(1), PushString(2), Concat, SetGlobal(0), Return],
             number_literals: vec![],
             string_literals: vec!["key".to_string(), "a".to_string(), "b".to_string()],
+            nested: vec![],
             num_locals: 0,
         };
         state.eval_chunk(input).unwrap();
@@ -194,6 +195,7 @@ mod tests {
             code: vec![PushNum(0), PushNum(0), Equal, SetGlobal(0), Return],
             number_literals: vec![2.5],
             string_literals: vec!["a".to_string()],
+            nested: vec![],
             num_locals: 0,
         };
         state.eval_chunk(input).unwrap();
@@ -214,6 +216,7 @@ mod tests {
             ],
             number_literals: vec![],
             string_literals: vec!["key".to_string()],
+            nested: vec![],
             num_locals: 0,
         };
         state.eval_chunk(input).unwrap();
@@ -234,6 +237,7 @@ mod tests {
             code,
             number_literals: vec![5.0],
             string_literals: vec!["a".to_string()],
+            nested: vec![],
             num_locals: 0,
         };
         state.eval_chunk(chunk).unwrap();
@@ -256,6 +260,7 @@ mod tests {
             code,
             number_literals: vec![2.0],
             string_literals: vec!["a".to_string()],
+            nested: vec![],
             num_locals: 0,
         };
         state.eval_chunk(chunk).unwrap();
@@ -282,6 +287,7 @@ mod tests {
             code,
             number_literals: vec![1.0, 10.0, 0.0],
             string_literals: vec!["a".to_string()],
+            nested: vec![],
             num_locals: 0,
         };
         let mut state = State::new();
@@ -315,6 +321,7 @@ mod tests {
             code,
             number_literals: vec![1.0, 10.0, 1.0],
             string_literals: vec!["x".to_string()],
+            nested: vec![],
             num_locals: 1,
         };
         let mut state = State::new();
@@ -341,6 +348,7 @@ mod tests {
             code,
             number_literals: vec![6.0, 2.0],
             string_literals: vec!["a".to_string()],
+            nested: vec![],
             num_locals: 4,
         };
         let mut state = State::new();

@@ -14,6 +14,7 @@ pub struct Chunk {
     pub number_literals: Vec<f64>,
     pub string_literals: Vec<String>,
     pub num_locals: u8,
+    pub nested: Vec<Chunk>,
 }
 
 pub fn parse_str(source: impl AsRef<str>) -> Result<Chunk> {

@@ -766,16 +766,39 @@ impl<'a> Parser<'a> {
                 let i = self.find_or_add_string(s)?;
                 self.push(Instr::PushString(i));
             }
+            TokenType::Function => {
+                self.expect(TokenType::LParen)?;
+                let args = self.parse_args()?;
+                self.expect(TokenType::RParen)?;
+                self.parse_fndef(args)?;
+            }
             TokenType::Nil => self.push(Instr::PushNil),
             TokenType::False => self.push(Instr::PushBool(false)),
             TokenType::True => self.push(Instr::PushBool(true)),
-            TokenType::DotDotDot | TokenType::Function => {
+            TokenType::DotDotDot => {
                 return Err(self.error(ErrorKind::UnsupportedFeature));
             }
             _ => {
                 return Err(self.err_unexpected(tok, TokenType::Nil));
             }
         }
+        Ok(())
+    }
+
+    fn parse_args(&mut self) -> Result<Vec<String>> {
+        // TODO: actually parse args
+        Ok(Vec::new())
+    }
+
+    fn parse_fndef(&mut self, args: Vec<String>) -> Result<()> {
+        if self.chunk.nested.len() >= u8::MAX as usize {
+            return Err(self.error(ErrorKind::Complexity));
+        }
+        assert!(args.is_empty(), "Can't handle function args yet.");
+        let new_chunk = self.parse_chunk()?;
+        self.chunk.nested.push(new_chunk);
+        self.push(Instr::Closure(self.chunk.nested.len() as u8 - 1));
+        self.expect(TokenType::End)?;
         Ok(())
     }
 
@@ -874,6 +897,7 @@ mod tests {
             number_literals: vec![5.0, 6.0],
             string_literals: vec![],
             num_locals: 0,
+            nested: vec![],
         };
         check_it(text, out);
     }
@@ -886,6 +910,7 @@ mod tests {
             number_literals: vec![5.0, 2.0],
             string_literals: vec![],
             num_locals: 0,
+            nested: vec![],
         };
         check_it(text, out);
     }
@@ -906,6 +931,7 @@ mod tests {
             number_literals: vec![5.0],
             string_literals: vec!["hi".to_string()],
             num_locals: 0,
+            nested: vec![],
         };
         check_it(text, out);
     }
@@ -926,6 +952,7 @@ mod tests {
             number_literals: vec![1.0, 2.0, 3.0],
             string_literals: vec![],
             num_locals: 0,
+            nested: vec![],
         };
         check_it(text, output);
     }
@@ -937,6 +964,7 @@ mod tests {
             code: vec![PushNum(0), PushNum(1), Negate, Pow, Instr::Print, Return],
             number_literals: vec![2.0, 3.0],
             string_literals: vec![],
+            nested: vec![],
             num_locals: 0,
         };
         check_it(text, output);
@@ -949,6 +977,7 @@ mod tests {
             code: vec![PushNum(0), Instr::Not, Instr::Not, Instr::Print, Return],
             number_literals: vec![1.0],
             string_literals: vec![],
+            nested: vec![],
             num_locals: 0,
         };
         check_it(text, output);
@@ -961,6 +990,7 @@ mod tests {
             code: vec![PushNum(0), SetGlobal(0), Return],
             number_literals: vec![5.0],
             string_literals: vec!["a".to_string()],
+            nested: vec![],
             num_locals: 0,
         };
         check_it(text, output);
@@ -980,6 +1010,7 @@ mod tests {
             ],
             number_literals: vec![],
             string_literals: vec![],
+            nested: vec![],
             num_locals: 0,
         };
         check_it(text, output);
@@ -1003,6 +1034,7 @@ mod tests {
             code,
             number_literals: vec![5.0],
             string_literals: vec![],
+            nested: vec![],
             num_locals: 0,
         };
         check_it(text, output);
@@ -1022,6 +1054,7 @@ mod tests {
             code,
             number_literals: vec![5.0],
             string_literals: vec!["a".to_string()],
+            nested: vec![],
             num_locals: 0,
         };
         check_it(text, chunk);
@@ -1045,6 +1078,7 @@ mod tests {
             code,
             number_literals: vec![5.0, 4.0],
             string_literals: vec!["a".to_string(), "b".to_string()],
+            nested: vec![],
             num_locals: 0,
         };
         check_it(text, chunk);
@@ -1067,6 +1101,7 @@ mod tests {
             code,
             number_literals: vec![5.0, 4.0],
             string_literals: vec!["a".to_string()],
+            nested: vec![],
             num_locals: 0,
         };
         check_it(text, chunk);
@@ -1096,6 +1131,7 @@ mod tests {
             code,
             number_literals: vec![5.0, 6.0, 7.0, 3.0, 4.0],
             string_literals: vec!["a".to_string()],
+            nested: vec![],
             num_locals: 0,
         };
         check_it(text, chunk);
@@ -1120,6 +1156,7 @@ mod tests {
             code,
             number_literals: vec![10.0, 1.0],
             string_literals: vec!["a".to_string()],
+            nested: vec![],
             num_locals: 0,
         };
         check_it(text, chunk);
@@ -1143,6 +1180,7 @@ mod tests {
             code,
             number_literals: vec![5.0, 4.0],
             string_literals: vec!["a".to_string(), "b".to_string()],
+            nested: vec![],
             num_locals: 0,
         };
         check_it(text, chunk);
@@ -1156,6 +1194,7 @@ mod tests {
             code,
             number_literals: vec![2.0],
             string_literals: vec![],
+            nested: vec![],
             num_locals: 1,
         };
         check_it(text, chunk);
@@ -1177,6 +1216,7 @@ mod tests {
             code,
             number_literals: vec![],
             string_literals: vec![],
+            nested: vec![],
             num_locals: 2,
         };
         check_it(text, chunk);
@@ -1200,6 +1240,7 @@ mod tests {
             code,
             number_literals: vec![],
             string_literals: vec![],
+            nested: vec![],
             num_locals: 2,
         };
         check_it(text, chunk);
@@ -1221,6 +1262,7 @@ mod tests {
             code,
             number_literals: vec![],
             string_literals: vec!["i".to_string()],
+            nested: vec![],
             num_locals: 1,
         };
         check_it(text, chunk);
@@ -1245,6 +1287,7 @@ mod tests {
             code,
             number_literals: vec![],
             string_literals: vec![],
+            nested: vec![],
             num_locals: 2,
         };
         check_it(text, chunk);
@@ -1268,6 +1311,7 @@ mod tests {
             code,
             number_literals: vec![1.0, 5.0],
             string_literals: vec![],
+            nested: vec![],
             num_locals: 4,
         };
         check_it(text, chunk);
@@ -1281,6 +1325,7 @@ mod tests {
             code,
             number_literals: vec![1.0],
             string_literals: vec!["a".to_string(), "b".to_string()],
+            nested: vec![],
             num_locals: 0,
         };
         check_it(text, chunk);
@@ -1294,6 +1339,7 @@ mod tests {
             code,
             number_literals: vec![1.0, 2.0],
             string_literals: vec!["a".to_string(), "b".to_string()],
+            nested: vec![],
             num_locals: 0,
         };
         check_it(text, chunk);
@@ -1315,6 +1361,7 @@ mod tests {
             code,
             number_literals: vec![1.0, 2.0, 3.0],
             string_literals: vec!["a".to_string(), "b".to_string()],
+            nested: vec![],
             num_locals: 0,
         };
         check_it(text, chunk);
@@ -1328,6 +1375,7 @@ mod tests {
             code,
             number_literals: vec![],
             string_literals: vec!["puts".to_string()],
+            nested: vec![],
             num_locals: 0,
         };
         check_it(text, chunk);
@@ -1341,6 +1389,7 @@ mod tests {
             code,
             number_literals: vec![5.0],
             string_literals: vec!["x".to_string()],
+            nested: vec![],
             num_locals: 0,
         };
         check_it(text, chunk);
@@ -1354,8 +1403,77 @@ mod tests {
             code,
             number_literals: vec![],
             string_literals: vec!["t".to_string(), "x".to_string(), "y".to_string()],
+            nested: vec![],
             num_locals: 0,
         };
         check_it(text, chunk);
+    }
+
+    #[test]
+    fn test28() {
+        let text = "x = function () end";
+        let code = vec![Closure(0), SetGlobal(0), Return];
+        let string_literals = vec!["x".into()];
+        let nested = vec![Chunk {
+            code: vec![Return],
+            ..Chunk::default()
+        }];
+        let chunk = Chunk {
+            code,
+            string_literals,
+            nested,
+            ..Chunk::default()
+        };
+        check_it(text, chunk);
+    }
+
+    #[test]
+    fn test29() {
+        let default = Chunk::default();
+        let text = "x = function () print(7) end";
+        let inner_chunk = Chunk {
+            code: vec![PushNum(0), Instr::Print, Return],
+            number_literals: vec![7.0],
+            ..default
+        };
+        let outer_chunk = Chunk {
+            code: vec![Closure(0), SetGlobal(0), Return],
+            string_literals: vec!["x".into()],
+            nested: vec![inner_chunk],
+            ..default
+        };
+        check_it(text, outer_chunk);
+    }
+
+    #[test]
+    fn test30() {
+        let text = "
+        z = function () print(21) end
+        x = function ()
+            local y = function () end
+            print(y)
+        end";
+        let z = Chunk {
+            code: vec![PushNum(0), Instr::Print, Return],
+            number_literals: vec![21.0],
+            ..Chunk::default()
+        };
+        let y = Chunk {
+            code: vec![Return],
+            ..Chunk::default()
+        };
+        let x = Chunk {
+            code: vec![Closure(0), SetLocal(0), GetLocal(0), Instr::Print, Return],
+            nested: vec![y],
+            num_locals: 1,
+            ..Chunk::default()
+        };
+        let outer_chunk = Chunk {
+            code: vec![Closure(0), SetGlobal(0), Closure(1), SetGlobal(1), Return],
+            nested: vec![z, x],
+            string_literals: vec!["z".into(), "x".into()],
+            ..Chunk::default()
+        };
+        check_it(text, outer_chunk);
     }
 }
