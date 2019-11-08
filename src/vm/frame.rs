@@ -179,9 +179,6 @@ impl State {
                     let s = self.instr_concat()?;
                     self.push_string(s);
                 }
-                Instr::Print => {
-                    println!("{}", self.pop_val());
-                }
 
                 _ => panic!("Unsupported: {:?}", inst),
             }

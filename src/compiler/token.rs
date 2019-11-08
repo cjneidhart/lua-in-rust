@@ -28,9 +28,6 @@ pub enum TokenType {
     LiteralString,
 
     EndOfFile,
-
-    // Placeholder
-    Print
 }
 
 impl Token {

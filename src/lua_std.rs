@@ -11,7 +11,7 @@ pub fn init(state: &mut State) {
         globals.insert(name.to_string(), Val::RustFn(func));
     };
     global_insert("assert", lua_assert);
-    global_insert("puts", lua_print);
+    global_insert("print", lua_print);
 }
 
 fn lua_assert(state: &mut State) -> Result<u8> {

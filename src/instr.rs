@@ -29,9 +29,6 @@ pub enum Instr {
     /// Pop a value from the stack and discard it.
     Pop,
 
-    /// Pop a value from the stack and print to `stdout`.
-    Print,
-
     /// Use the param as an index into the string literal set. Using that
     /// string, index the global table and push onto the stack.
     GetGlobal(u8),

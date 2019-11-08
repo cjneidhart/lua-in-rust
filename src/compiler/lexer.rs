@@ -415,7 +415,6 @@ fn keyword_match(s: &str) -> TokenType {
         "true" => True,
         "until" => Until,
         "while" => While,
-        "print" => Print,
         _ => Identifier,
     }
 }
@@ -476,7 +475,7 @@ mod tests {
     fn test_lexer05() {
         let input = "print 5 or 6;";
         let tokens = &[
-            (Print, 0, 5),
+            (Identifier, 0, 5),
             (LiteralNumber, 6, 1),
             (Or, 8, 2),
             (LiteralNumber, 11, 1),
@@ -511,7 +510,7 @@ mod tests {
     fn test_lexer08() {
         let input = "print {x = 5,}";
         let tokens = &[
-            (Print, 0, 5),
+            (Identifier, 0, 5),
             (LCurly, 6, 1),
             (Identifier, 7, 1),
             (Assign, 9, 1),
@@ -526,7 +525,7 @@ mod tests {
     fn test_lexer09() {
         let input = "print()\nsome_other_function(an_argument)\n";
         let tokens = &[
-            (Print, 0, 5),
+            (Identifier, 0, 5),
             (LParen, 5, 1),
             (RParen, 6, 1),
             (Identifier, 8, 19),
@@ -550,7 +549,7 @@ mod tests {
     fn test_lexer11() {
         let input = "-- basic test\nprint('hi' --comment\n )\n";
         let tokens = &[
-            (Print, 14, 5),
+            (Identifier, 14, 5),
             (LParen, 19, 1),
             (LiteralString, 20, 4),
             (RParen, 36, 1),
