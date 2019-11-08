@@ -16,23 +16,25 @@ use crate::Markable;
 use crate::Result;
 use crate::Val;
 
-use frame::{Action, Frame};
+use frame::Frame;
 
 #[derive(Default)]
 pub struct State {
     pub globals: HashMap<String, Val>,
-    // This field is only used by external functions.
-    pub locals: Vec<Val>,
+    pub stack: Vec<Val>,
+    curr_frame: Frame,
     frames: Vec<Frame>,
     heap: GcHeap,
 }
 
 impl Markable for State {
     fn mark_reachable(&self) {
-        let globals_iter = self.globals.values();
-        let locals_iter = self.locals.iter();
-        for val in globals_iter.chain(locals_iter) {
+        for val in self.globals.values() {
             val.mark_reachable();
+        }
+        self.curr_frame.mark_reachable();
+        for frame in &self.frames {
+            frame.mark_reachable();
         }
     }
 }
@@ -42,6 +44,31 @@ impl State {
         let mut me = State::default();
         lua_std::init(&mut me);
         me
+    }
+
+    pub fn call(&mut self, num_args: u8, num_results: u8) -> Result<()> {
+        assert!(num_results == 0, "Can't return values from functions yet.");
+        let idx = self.stack.len() - num_args as usize - 1;
+        let func_val = self.stack[idx].clone();
+        if let Val::RustFn(f) = func_val {
+            f(self).map(|n| {
+                assert!(n == 0, "Can't return values from functions yet.");
+            })
+        } else {
+            // TODO: handle this
+            panic!("Tried to call something not a function.");
+        }
+    }
+
+    pub fn create_table(&mut self, size: usize) {
+        assert!(size == 0, "Pre-allocating tables is unsupported.");
+        self.check_heap();
+        let t = self.heap.new_table();
+        self.stack.push(Val::Obj(t));
+    }
+
+    pub fn get_global(&self, s: &str) -> Val {
+        self.globals.get(s).cloned().unwrap_or_default()
     }
 
     /// Calls `reader` to produce source code, then parses that code and returns
@@ -71,69 +98,54 @@ impl State {
         }
     }
 
+    pub fn push_string(&mut self, s: String) {
+        self.check_heap();
+        let obj = self.heap.new_string(s);
+        self.stack.push(Val::Obj(obj));
+    }
+
+    pub fn set_global(&mut self, name: &str, val: Val) {
+        self.globals.insert(name.to_string(), val);
+    }
+
     pub fn eval_chunk(&mut self, chunk: Chunk) -> Result<()> {
         let strings = self.alloc_strings(&chunk.string_literals);
-        let mut frame = Frame::new(chunk, strings);
-        loop {
-            match frame.eval()? {
-                Action::AllocString(s) => {
-                    if self.heap.is_full() {
-                        self.mark_reachable();
-                        frame.mark_reachable();
-                        self.heap.collect();
-                    }
-                    let val = Val::Obj(self.heap.new_string(s));
-                    frame.stack.push(val);
-                }
-                Action::AllocTable => {
-                    if self.heap.is_full() {
-                        self.mark_reachable();
-                        frame.mark_reachable();
-                        self.heap.collect();
-                    }
-                    let val = Val::Obj(self.heap.new_table());
-                    frame.stack.push(val);
-                }
-                Action::Call(num_args) => {
-                    self.locals = frame.stack.split_off(frame.stack.len() - num_args as usize);
-                    let f = frame.stack.pop().unwrap();
-                    if let Val::RustFn(func) = f {
-                        self.frames.push(frame);
-                        func(self)?;
-                        frame = self.frames.pop().unwrap();
-                        frame.stack.append(&mut self.locals);
-                    } else {
-                        return Err(self.error(ErrorKind::TypeError));
-                    }
-                }
-                Action::GetGlobal(i) => {
-                    let key = &frame.chunk.string_literals[i as usize];
-                    let val = self.globals.get(key).cloned().unwrap_or(Val::Nil);
-                    frame.stack.push(val);
-                }
-                Action::SetGlobal(i) => {
-                    let key = frame.chunk.string_literals[i as usize].clone();
-                    let val = frame.stack.pop().unwrap();
-                    self.globals.insert(key, val);
-                }
-                Action::Return => {
-                    return Ok(());
-                }
-            }
+        for _ in 0..(chunk.num_locals) {
+            self.stack.push(Val::Nil);
         }
+        let mut new_frame = Frame::new(chunk, strings);
+        std::mem::swap(&mut new_frame, &mut self.curr_frame);
+        self.frames.push(new_frame);
+        self.eval()
     }
 
     /// Allocate every string in `strs` on the heap.
     /// The `Val`s returned are always strings.
-    fn alloc_strings(&mut self, strs: &[impl ToString]) -> Vec<Val> {
+    fn alloc_strings<I, S>(&mut self, strs: I) -> Vec<Val>
+    where
+        I: std::iter::IntoIterator<Item = S>,
+        S: ToString,
+    {
         use std::iter::FromIterator;
-        Vec::from_iter(strs.iter().map(|s| {
-            if self.heap.is_full() {
-                self.mark_reachable();
-                self.heap.collect();
-            }
+        Vec::from_iter(strs.into_iter().map(|s| {
+            self.check_heap();
             Val::Obj(self.heap.new_string(s.to_string()))
         }))
+    }
+
+    /// Perform a garbage-collection cycle, if necessary.
+    fn check_heap(&mut self) {
+        self.check_heap_with(|| {});
+    }
+
+    /// Perform a garbage-collection cycle, if necessary. `mark_others` should
+    /// mark any other objects which the `State` does not know about.
+    fn check_heap_with(&mut self, mark_others: impl FnOnce()) {
+        if self.heap.is_full() {
+            self.mark_reachable();
+            mark_others();
+            self.heap.collect();
+        }
     }
 
     pub fn error(&mut self, kind: ErrorKind) -> Error {

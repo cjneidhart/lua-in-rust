@@ -8,92 +8,91 @@ use crate::Markable;
 use crate::Result;
 use crate::Val;
 
+use super::State;
+
 /// A `Frame` represents a single stack-frame of a Lua function.
+#[derive(Default)]
 pub struct Frame {
     /// The chunk being executed
-    pub chunk: Chunk,
-    /// The stack of local variables and temp values
-    pub stack: Vec<Val>,
+    chunk: Chunk,
     /// The index of the next (not current) instruction
     ip: usize,
     /// The chunk's literal strings, pre-allocated; guaranteed to be strings.
     string_literals: Vec<Val>,
 }
 
-/// Although `Frame` manages most of the core evaluation, sometimes it needs to
-/// access the global `State`. When that happens, it returns an `Action` to the
-/// `State`, indicating what it needs.
-pub enum Action {
-    /// Get the given string from this frame and look up the global variable of
-    /// the same name.
-    GetGlobal(u8),
-    /// Get the given string from this frame, and the value ontop of this
-    /// frame's stack. Use those to assign to a global variable.
-    SetGlobal(u8),
-    /// Allocate a new string. Only the VM can do this, since it might trigger
-    /// a garbage collection.
-    AllocString(String),
-    /// Allocate an empty table. Only the VM can do this, since it might trigger
-    /// a garbage collection.
-    AllocTable,
-    /// Call another function. The single parameter to this variant is how many
-    /// arguments are given. That many arguments will be ontop of the frame's
-    /// stack. Just under the arguments is the function to be called.
-    Call(u8),
-    /// The `Frame` has finished evaluating.
-    Return,
-}
+// /// Although `Frame` manages most of the core evaluation, sometimes it needs to
+// /// access the global `State`. When that happens, it returns an `Action` to the
+// /// `State`, indicating what it needs.
+// pub enum Action {
+//     /// Get the given string from this frame and look up the global variable of
+//     /// the same name.
+//     GetGlobal(u8),
+//     /// Get the given string from this frame, and the value ontop of this
+//     /// frame's stack. Use those to assign to a global variable.
+//     SetGlobal(u8),
+//     /// Allocate a new string. Only the VM can do this, since it might trigger
+//     /// a garbage collection.
+//     AllocString(String),
+//     /// Allocate an empty table. Only the VM can do this, since it might trigger
+//     /// a garbage collection.
+//     AllocTable,
+//     /// Call another function. The single parameter to this variant is how many
+//     /// arguments are given. That many arguments will be ontop of the frame's
+//     /// stack. Just under the arguments is the function to be called.
+//     Call(u8),
+//     /// The `Frame` has finished evaluating.
+//     Return,
+// }
 
 impl Frame {
     /// Create a new Frame.
     pub fn new(chunk: Chunk, string_literals: Vec<Val>) -> Self {
-        let mut stack = Vec::new();
-        for _ in 0..(chunk.num_locals) {
-            stack.push(Val::Nil);
-        }
         let ip = 0;
         Self {
             chunk,
-            stack,
             ip,
             string_literals,
         }
     }
 
+    /// Jump forward/back by `offset` instructions.
+    fn jump(&mut self, offset: isize) {
+        self.ip = self.ip.wrapping_add(offset as usize);
+    }
+
+    /// Get the instruction at the instruction pointer, and advance the
+    /// instruction pointer accordingly.
+    pub fn get_instr(&mut self) -> Instr {
+        let i = self.chunk.code[self.ip];
+        self.ip += 1;
+        i
+    }
+
+    pub fn get_number_constant(&self, i: u8) -> f64 {
+        self.chunk.number_literals[i as usize]
+    }
+
+    pub fn get_string_constant(&self, i: u8) -> Val {
+        self.string_literals[i as usize].clone()
+    }
+}
+
+impl State {
     /// Start evaluating instructions from the current position.
-    pub fn eval(&mut self) -> Result<Action> {
+    pub fn eval(&mut self) -> Result<()> {
         loop {
-            let inst = self.get_instr();
+            let inst = self.curr_frame.get_instr();
             match inst {
                 // General control flow
                 Instr::Pop => {
                     self.pop_val();
                 }
-                Instr::Jump(offset) => self.jump(offset),
-                Instr::BranchFalse(offset) => {
-                    if !self.pop_val().truthy() {
-                        self.jump(offset);
-                    }
-                }
-                Instr::BranchTrue(offset) => {
-                    if self.pop_val().truthy() {
-                        self.jump(offset);
-                    }
-                }
-                Instr::BranchFalseKeep(offset) => {
-                    let val = self.pop_val();
-                    if !val.truthy() {
-                        self.jump(offset);
-                    }
-                    self.stack.push(val);
-                }
-                Instr::BranchTrueKeep(offset) => {
-                    let val = self.pop_val();
-                    if val.truthy() {
-                        self.jump(offset);
-                    }
-                    self.stack.push(val);
-                }
+                Instr::Jump(offset) => self.curr_frame.jump(offset),
+                Instr::BranchFalse(ofst) => self.instr_branch(false, ofst, false),
+                Instr::BranchFalseKeep(ofst) => self.instr_branch(false, ofst, true),
+                Instr::BranchTrue(ofst) => self.instr_branch(true, ofst, false),
+                Instr::BranchTrueKeep(ofst) => self.instr_branch(true, ofst, false),
 
                 // Local variables
                 Instr::GetLocal(i) => {
@@ -105,31 +104,24 @@ impl Frame {
                 }
 
                 // Actions which require help from the `State`.
-                Instr::GetGlobal(i) => {
-                    return Ok(Action::GetGlobal(i));
-                }
-                Instr::SetGlobal(i) => {
-                    return Ok(Action::SetGlobal(i));
-                }
-                Instr::Call(num_args) => {
-                    return Ok(Action::Call(num_args));
-                }
-                Instr::NewTable => {
-                    return Ok(Action::AllocTable);
-                }
+                Instr::GetGlobal(i) => self.instr_get_global(i),
+                Instr::SetGlobal(i) => self.instr_set_global(i),
+                Instr::Call(num_args) => self.call(num_args, 0)?,
+                Instr::NewTable => self.create_table(0),
+
                 Instr::Return => {
-                    return Ok(Action::Return);
+                    return Ok(());
                 }
 
                 // Literals
                 Instr::PushNil => self.stack.push(Val::Nil),
                 Instr::PushBool(b) => self.stack.push(Val::Bool(b)),
                 Instr::PushNum(i) => {
-                    let n = self.get_number_constant(i);
+                    let n = self.curr_frame.get_number_constant(i);
                     self.stack.push(Val::Num(n));
                 }
                 Instr::PushString(i) => {
-                    let s = self.get_string_constant(i);
+                    let s = self.curr_frame.get_string_constant(i);
                     self.stack.push(s);
                 }
 
@@ -161,8 +153,7 @@ impl Frame {
 
                 // `for` loops
                 Instr::ForLoop(slot, offset) => self.instr_for_loop(slot, offset),
-                // TODO remove this cast.
-                Instr::ForPrep(slot, len) => self.instr_for_prep(slot, len as usize)?,
+                Instr::ForPrep(slot, len) => self.instr_for_prep(slot, len)?,
 
                 // Unary
                 Instr::Negate => self.instr_negate()?,
@@ -178,7 +169,7 @@ impl Frame {
                 // Misc.
                 Instr::Concat => {
                     let s = self.instr_concat()?;
-                    return Ok(Action::AllocString(s));
+                    self.push_string(s);
                 }
                 Instr::Print => {
                     println!("{}", self.pop_val());
@@ -190,10 +181,6 @@ impl Frame {
     }
 
     // Helper methods
-
-    fn error(&mut self, _kind: ErrorKind) -> Error {
-        unimplemented!();
-    }
 
     fn eval_float_bool(&mut self, f: impl Fn(&f64, &f64) -> bool) -> Result<()> {
         let n2 = self.pop_num()?;
@@ -209,26 +196,6 @@ impl Frame {
         Ok(())
     }
 
-    /// Get the instruction at the instruction pointer, and advance the
-    /// instruction pointer accordingly.
-    fn get_instr(&mut self) -> Instr {
-        let i = self.chunk.code[self.ip];
-        self.ip += 1;
-        i
-    }
-
-    fn get_number_constant(&self, i: u8) -> f64 {
-        self.chunk.number_literals[i as usize]
-    }
-
-    fn get_string_constant(&self, i: u8) -> Val {
-        self.string_literals[i as usize].clone()
-    }
-
-    fn jump(&mut self, offset: isize) {
-        self.ip = self.ip.wrapping_add(offset as usize);
-    }
-
     fn pop_num(&mut self) -> Result<f64> {
         self.pop_val().as_num().ok_or_else(|| self.type_error())
     }
@@ -242,6 +209,19 @@ impl Frame {
     }
 
     // Instruction-specific methods
+
+    /// Pop a value. If its truthiness matches `cond`, jump with `offset`.
+    /// If `keep_cond`, then push the value back after jumping.
+    fn instr_branch(&mut self, cond: bool, offset: isize, keep_cond: bool) {
+        let val = self.pop_val();
+        let truthy = val.truthy();
+        if cond == truthy {
+            self.curr_frame.jump(offset);
+        }
+        if keep_cond {
+            self.stack.push(val);
+        }
+    }
 
     /// Pop two values from the stack and concatenate them. Instead of pushing
     /// the result to the stack immediately, this function returns the `String`
@@ -259,7 +239,7 @@ impl Frame {
         }
     }
 
-    fn instr_for_prep(&mut self, local_slot: u8, body_length: usize) -> Result<()> {
+    fn instr_for_prep(&mut self, local_slot: u8, body_length: isize) -> Result<()> {
         let step = self.pop_num()?;
         let end = self.pop_num()?;
         let start = self.pop_num()?;
@@ -270,7 +250,7 @@ impl Frame {
                 local_slot += 1;
             }
         } else {
-            self.ip += body_length;
+            self.curr_frame.jump(body_length);
         }
         Ok(())
     }
@@ -284,19 +264,30 @@ impl Frame {
         if check_numeric_for_condition(var, limit, step) {
             self.stack[slot] = Val::Num(var);
             self.stack[slot + 3] = Val::Num(var);
-            self.jump(offset);
+            self.curr_frame.jump(offset);
         }
     }
 
     fn instr_get_field(&mut self, field_id: u8) -> Result<()> {
         let mut tbl_val = self.pop_val();
         if let Some(t) = tbl_val.as_table() {
-            let key = self.get_string_constant(field_id);
+            let key = self.curr_frame.get_string_constant(field_id);
             let val = t.get(&key);
             self.stack.push(val.clone());
             Ok(())
         } else {
             Err(self.error(ErrorKind::TypeError))
+        }
+    }
+
+    fn instr_get_global(&mut self, string_num: u8) {
+        let s = self.curr_frame.get_string_constant(string_num);
+        if let Some(s) = s.as_string() {
+            let val = self.get_global(s);
+            self.stack.push(val);
+        } else {
+            // TODO handle this better
+            panic!("Tried to index globals with something other than a string.");
         }
     }
 
@@ -315,7 +306,7 @@ impl Frame {
         let val = self.pop_val();
         let mut tbl = self.pop_val();
         let t = tbl.as_table().unwrap();
-        let key = self.get_string_constant(i);
+        let key = self.curr_frame.get_string_constant(i);
         t.insert(key, val)?;
         self.stack.push(tbl);
         Ok(())
@@ -337,11 +328,22 @@ impl Frame {
         let idx = self.stack.len() - stack_offset as usize - 1;
         let mut tbl = self.stack.remove(idx);
         if let Some(t) = tbl.as_table() {
-            let key = self.get_string_constant(field_id);
+            let key = self.curr_frame.get_string_constant(field_id);
             t.insert(key, val)?;
             Ok(())
         } else {
             Err(self.error(ErrorKind::TypeError))
+        }
+    }
+
+    fn instr_set_global(&mut self, string_num: u8) {
+        let s = self.curr_frame.get_string_constant(string_num);
+        let val = self.pop_val();
+        if let Some(s) = s.as_string() {
+            self.set_global(s, val);
+        } else {
+            // TODO handle this better
+            panic!("Tried to index globals with something other than a string.");
         }
     }
 
@@ -361,8 +363,7 @@ impl Frame {
 
 impl Markable for Frame {
     fn mark_reachable(&self) {
-        let iter = self.stack.iter().chain(&self.string_literals);
-        for val in iter {
+        for val in &self.string_literals {
             val.mark_reachable()
         }
     }

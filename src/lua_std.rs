@@ -15,7 +15,7 @@ pub fn init(state: &mut State) {
 }
 
 fn lua_assert(state: &mut State) -> Result<u8> {
-    if let Some(val) = state.locals.get(0) {
+    if let Some(val) = state.stack.get(0) {
         if val.truthy() {
             Ok(0)
         } else {
@@ -27,7 +27,7 @@ fn lua_assert(state: &mut State) -> Result<u8> {
 }
 
 fn lua_print(state: &mut State) -> Result<u8> {
-    let mut iter = state.locals.drain(..);
+    let mut iter = state.stack.drain(..);
     if let Some(val) = iter.next() {
         print!("{}", val);
         for val in iter {
