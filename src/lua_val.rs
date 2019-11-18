@@ -138,7 +138,7 @@ impl PartialEq for Val {
                 let y = b as *const RustFunc;
                 x == y
             }
-            (Obj(a), Obj(b)) => a == b,
+            (Obj(a), Obj(b)) => ObjectPtr::lua_eq(*a, *b),
             _ => false,
         }
     }

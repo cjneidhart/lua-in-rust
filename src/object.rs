@@ -71,6 +71,15 @@ impl ObjectPtr {
         }
     }
 
+    /// Returns whether the contained values are equal, according to Lua's
+    /// `==` operator.
+    pub fn lua_eq(self, other: Self) -> bool {
+        match (self.as_string(), other.as_string()) {
+            (Some(s1), Some(s2)) => s1 == s2,
+            _ => self == other,
+        }
+    }
+
     pub fn type_string(self) -> &'static str {
         self.deref().raw.type_string()
     }

@@ -15,25 +15,23 @@ pub fn init(state: &mut State) {
 }
 
 fn lua_assert(state: &mut State) -> Result<u8> {
-    if let Some(val) = state.stack.get(0) {
-        if val.truthy() {
-            Ok(0)
-        } else {
-            Err(state.error(ErrorKind::AssertionFail))
-        }
+    // TODO fail with different message if assert receives no args.
+    if state.get_top() >= 1 && state.to_boolean(1) {
+        Ok(0)
     } else {
-        Err(state.error(ErrorKind::TypeError))
+        Err(state.error(ErrorKind::AssertionFail))
     }
 }
 
 fn lua_print(state: &mut State) -> Result<u8> {
-    let mut iter = state.stack.drain(..);
-    if let Some(val) = iter.next() {
-        print!("{}", val);
-        for val in iter {
-            print!("\t{}", val);
+    let range = 1..=state.get_top();
+    let mut strings = range.map(|i| state.to_string(i as isize));
+    if let Some(s) = strings.next() {
+        print!("{}", s);
+        for s in strings {
+            print!("\t{}", s);
         }
-        println!();
     }
+    println!();
     Ok(0)
 }
