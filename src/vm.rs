@@ -20,7 +20,7 @@ use frame::Frame;
 
 #[derive(Default)]
 pub struct State {
-    pub globals: HashMap<String, Val>,
+    globals: HashMap<String, Val>,
     stack: Vec<Val>,
     stack_bottom: usize,
     heap: GcHeap,

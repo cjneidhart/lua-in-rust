@@ -6,9 +6,8 @@ use crate::State;
 use crate::Val;
 
 pub fn init(state: &mut State) {
-    let globals = &mut state.globals;
-    let mut global_insert = |name: &str, func| {
-        globals.insert(name.to_string(), Val::RustFn(func));
+    let mut global_insert = |name, func| {
+        state.set_global(name, Val::RustFn(func));
     };
     global_insert("assert", lua_assert);
     global_insert("print", lua_print);
