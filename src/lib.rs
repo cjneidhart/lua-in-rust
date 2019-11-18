@@ -14,6 +14,7 @@ use object::{GcHeap, Markable, ObjectPtr};
 use table::Table;
 
 pub use compiler::Chunk;
+pub use lua_val::LuaType;
 pub use vm::State;
 
 pub type Result<T> = std::result::Result<T, Error>;

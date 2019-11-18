@@ -61,13 +61,13 @@ impl Val {
 
     /// Return the value's type, represented as a string.
     /// Equivalent to lua's `type()` function.
-    pub fn type_string(&self) -> &'static str {
+    pub fn typ(&self) -> LuaType {
         match self {
-            Nil => "nil",
-            Bool(_) => "boolean",
-            Num(_) => "number",
-            RustFn(_) => "function",
-            Obj(o) => o.type_string(),
+            Nil => LuaType::Nil,
+            Bool(_) => LuaType::Boolean,
+            Num(_) => LuaType::Number,
+            RustFn(_) => LuaType::Function,
+            Obj(o) => o.typ(),
         }
     }
 }
@@ -149,5 +149,34 @@ impl Markable for Val {
         if let Obj(o) = self {
             o.mark_reachable();
         }
+    }
+}
+
+pub enum LuaType {
+    Nil,
+    Boolean,
+    Number,
+    String,
+    Table,
+    Function,
+}
+
+impl LuaType {
+    fn as_string(&self) -> &'static str {
+        use LuaType::*;
+        match self {
+            Nil => "nil",
+            Boolean => "boolean",
+            Number => "number",
+            String => "string",
+            Table => "table",
+            Function => "function",
+        }
+    }
+}
+
+impl Display for LuaType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.as_string())
     }
 }

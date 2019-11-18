@@ -10,6 +10,7 @@ use std::ops::Drop;
 use std::ptr::{self, NonNull};
 
 use crate::Chunk;
+use crate::LuaType;
 use crate::Table;
 
 /// A wrapper around the `LuaVal`s which need to be garbage-collected.
@@ -32,11 +33,11 @@ enum RawObject {
 }
 
 impl RawObject {
-    pub fn type_string(&self) -> &'static str {
+    pub fn typ(&self) -> LuaType {
         match self {
-            RawObject::LuaFn(_) => "function",
-            RawObject::Str(_) => "string",
-            RawObject::Table(_) => "table",
+            RawObject::LuaFn(_) => LuaType::Function,
+            RawObject::Str(_) => LuaType::String,
+            RawObject::Table(_) => LuaType::Table,
         }
     }
 }
@@ -80,8 +81,8 @@ impl ObjectPtr {
         }
     }
 
-    pub fn type_string(self) -> &'static str {
-        self.deref().raw.type_string()
+    pub fn typ(self) -> LuaType {
+        self.deref().raw.typ()
     }
 
     fn deref(&self) -> &WrappedObject {
