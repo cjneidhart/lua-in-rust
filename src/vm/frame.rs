@@ -1,17 +1,16 @@
 use std::ops;
 
-use crate::Chunk;
-use crate::ErrorKind;
-use crate::Instr;
-use crate::Markable;
-use crate::Result;
-use crate::Val;
-
+use super::Chunk;
+use super::ErrorKind;
+use super::Instr;
+use super::Markable;
+use super::Result;
 use super::State;
+use super::Val;
 
 /// A `Frame` represents a single stack-frame of a Lua function.
 #[derive(Default)]
-pub struct Frame {
+pub(super) struct Frame {
     /// The chunk being executed
     chunk: Chunk,
     /// The index of the next (not current) instruction
@@ -22,7 +21,7 @@ pub struct Frame {
 
 impl Frame {
     /// Create a new Frame.
-    pub fn new(chunk: Chunk, string_literals: Vec<Val>) -> Self {
+    pub(super) fn new(chunk: Chunk, string_literals: Vec<Val>) -> Self {
         let ip = 0;
         Self {
             chunk,
@@ -57,7 +56,7 @@ impl Frame {
     }
 
     /// Start evaluating instructions from the current position.
-    pub fn eval(&mut self, state: &mut State) -> Result<()> {
+    pub(super) fn eval(&mut self, state: &mut State) -> Result<()> {
         loop {
             let inst = self.get_instr();
             if option_env!("LUA_DEBUG_VM").is_some() {
@@ -220,8 +219,7 @@ impl State {
 
     fn instr_get_global(&mut self, frame: &Frame, string_num: u8) {
         let s = &frame.chunk.string_literals[string_num as usize];
-        let val = self.get_global(s);
-        self.stack.push(val);
+        self.get_global(s);
     }
 
     fn instr_get_local(&mut self, local_num: u8) {
@@ -279,7 +277,7 @@ impl State {
         let s = frame.get_string_constant(string_num);
         let val = self.pop_val();
         if let Some(s) = s.as_string() {
-            self.set_global(s, val);
+            self.globals.insert(s.into(), val);
         } else {
             // TODO handle this better
             panic!("Tried to index globals with something other than a string.");

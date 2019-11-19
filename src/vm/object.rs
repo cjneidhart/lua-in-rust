@@ -5,13 +5,13 @@
 //! Because of this, it needs to be garbage collected.
 
 use std::cell::Cell;
-use std::fmt::{self, Display};
+use std::fmt;
 use std::ops::Drop;
 use std::ptr::{self, NonNull};
 
-use crate::Chunk;
-use crate::LuaType;
-use crate::Table;
+use super::Chunk;
+use super::LuaType;
+use super::Table;
 
 /// A wrapper around the `LuaVal`s which need to be garbage-collected.
 struct WrappedObject {
@@ -33,7 +33,7 @@ enum RawObject {
 }
 
 impl RawObject {
-    pub fn typ(&self) -> LuaType {
+    pub(super) fn typ(&self) -> LuaType {
         match self {
             RawObject::LuaFn(_) => LuaType::Function,
             RawObject::Str(_) => LuaType::String,
@@ -44,12 +44,12 @@ impl RawObject {
 
 /// The internal pointer type objects use to point to each other.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub struct ObjectPtr {
+pub(super) struct ObjectPtr {
     ptr: NonNull<WrappedObject>,
 }
 
 impl ObjectPtr {
-    pub fn as_lua_function(self) -> Option<Chunk> {
+    pub(super) fn as_lua_function(self) -> Option<Chunk> {
         match &self.deref().raw {
             RawObject::LuaFn(chunk) => Some((**chunk).clone()),
             _ => None,
@@ -58,14 +58,14 @@ impl ObjectPtr {
 
     // Clippy isn't smart enough to see we need to take `self` by reference.
     #[allow(clippy::trivially_copy_pass_by_ref)]
-    pub fn as_string(&self) -> Option<&str> {
+    pub(super) fn as_string(&self) -> Option<&str> {
         match &self.deref().raw {
             RawObject::Str(s) => Some(s),
             _ => None,
         }
     }
 
-    pub fn as_table(&mut self) -> Option<&mut Table> {
+    pub(super) fn as_table(&mut self) -> Option<&mut Table> {
         match &mut self.deref_mut().raw {
             RawObject::Table(t) => Some(t),
             _ => None,
@@ -74,14 +74,14 @@ impl ObjectPtr {
 
     /// Returns whether the contained values are equal, according to Lua's
     /// `==` operator.
-    pub fn lua_eq(self, other: Self) -> bool {
+    pub(super) fn lua_eq(self, other: Self) -> bool {
         match (self.as_string(), other.as_string()) {
             (Some(s1), Some(s2)) => s1 == s2,
             _ => self == other,
         }
     }
 
-    pub fn typ(self) -> LuaType {
+    pub(super) fn typ(self) -> LuaType {
         self.deref().raw.typ()
     }
 
@@ -94,11 +94,11 @@ impl ObjectPtr {
     }
 }
 
-impl Display for ObjectPtr {
+impl fmt::Display for ObjectPtr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.deref().raw {
             RawObject::LuaFn(_) => write!(f, "function: {:p}", self.ptr),
-            RawObject::Str(s) => Display::fmt(s, f),
+            RawObject::Str(s) => s.fmt(f),
             RawObject::Table(_) => write!(f, "table: {:p}", self.ptr),
         }
     }
@@ -111,7 +111,7 @@ enum Color {
 }
 
 /// A collection of objects which need to be garbage-collected.
-pub struct GcHeap {
+pub(super) struct GcHeap {
     /// The start of the linked list which contains every Object.
     start: *mut WrappedObject,
     /// The number of objects currently in the heap.
@@ -123,7 +123,7 @@ pub struct GcHeap {
 impl GcHeap {
     /// Run the garbage-collector.
     /// Make sure you mark all the roots before calling this function.
-    pub fn collect(&mut self) {
+    pub(super) fn collect(&mut self) {
         if option_env!("LUA_DEBUG_GC").is_some() {
             println!("Running garbage collector");
             println!("Initial size: {}", self.size);
@@ -152,21 +152,21 @@ impl GcHeap {
         self.threshold = self.size * 2;
     }
 
-    pub fn is_full(&self) -> bool {
+    pub(super) fn is_full(&self) -> bool {
         self.size >= self.threshold
     }
 
-    pub fn new_lua_fn(&mut self, chunk: Chunk) -> ObjectPtr {
+    pub(super) fn new_lua_fn(&mut self, chunk: Chunk) -> ObjectPtr {
         let raw = RawObject::LuaFn(Box::new(chunk));
         self.new_obj_from_raw(raw)
     }
 
-    pub fn new_string(&mut self, s: String) -> ObjectPtr {
+    pub(super) fn new_string(&mut self, s: String) -> ObjectPtr {
         let raw = RawObject::Str(s);
         self.new_obj_from_raw(raw)
     }
 
-    pub fn new_table(&mut self) -> ObjectPtr {
+    pub(super) fn new_table(&mut self) -> ObjectPtr {
         let raw = RawObject::Table(Table::default());
         self.new_obj_from_raw(raw)
     }
@@ -212,7 +212,7 @@ impl Drop for GcHeap {
     }
 }
 
-pub trait Markable {
+pub(super) trait Markable {
     /// Mark this item and the references it contains as reachable.
     fn mark_reachable(&self);
 }

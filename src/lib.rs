@@ -1,22 +1,30 @@
+//! TODO: Crate-level description
+
+#![warn(future_incompatible)]
+#![warn(non_ascii_idents)]
+#![warn(rust_2018_idioms)]
+#![warn(single_use_lifetimes)]
+#![warn(trivial_casts)]
+#![warn(trivial_numeric_casts)]
+#![warn(unreachable_pub)]
+#![warn(unused)]
+#![warn(variant_size_differences)]
+
 mod compiler;
 mod error;
 mod instr;
 mod lua_std;
-mod lua_val;
-mod object;
-mod table;
 mod vm;
 
+use compiler::Chunk;
 use error::{Error, ErrorKind};
 use instr::Instr;
-use lua_val::Val;
-use object::{GcHeap, Markable, ObjectPtr};
-use table::Table;
 
-pub use compiler::Chunk;
-pub use lua_val::LuaType;
+pub use vm::LuaType;
+pub use vm::RustFunc;
 pub use vm::State;
 
+/// Custom result type for evaluating Lua.
 pub type Result<T> = std::result::Result<T, Error>;
 
 pub fn run_string<S: AsRef<str>>(src: S) -> Result<()> {

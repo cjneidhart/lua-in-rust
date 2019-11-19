@@ -4,9 +4,13 @@ mod lexer;
 mod parser;
 mod token;
 
-use crate::{Instr, Result};
+use super::Error;
+use super::ErrorKind;
+use super::Instr;
+use super::Result;
 
-pub use token::{Token, TokenType};
+use token::Token;
+use token::TokenType;
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Chunk {
@@ -17,6 +21,6 @@ pub struct Chunk {
     pub nested: Vec<Chunk>,
 }
 
-pub fn parse_str(source: impl AsRef<str>) -> Result<Chunk> {
+pub(super) fn parse_str(source: impl AsRef<str>) -> Result<Chunk> {
     parser::parse_str(source.as_ref())
 }

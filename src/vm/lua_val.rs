@@ -1,17 +1,17 @@
-use std::fmt::{self, Debug, Display, Formatter};
+use super::object::ObjectPtr;
+use super::Chunk;
+use super::Markable;
+use super::Result;
+use super::State;
+use super::Table;
+
+use std::fmt;
 use std::hash::{Hash, Hasher};
 
-use crate::Chunk;
-use crate::Markable;
-use crate::ObjectPtr;
-use crate::Result;
-use crate::State;
-use crate::Table;
-
-type RustFunc = fn(&mut State) -> Result<u8>;
+pub type RustFunc = fn(&mut State) -> Result<u8>;
 
 #[derive(Clone)]
-pub enum Val {
+pub(super) enum Val {
     Nil,
     Bool(bool),
     Num(f64),
@@ -21,7 +21,7 @@ pub enum Val {
 use Val::*;
 
 impl Val {
-    pub fn as_lua_function(&self) -> Option<Chunk> {
+    pub(super) fn as_lua_function(&self) -> Option<Chunk> {
         if let Obj(o) = self {
             o.as_lua_function()
         } else {
@@ -29,14 +29,14 @@ impl Val {
         }
     }
 
-    pub fn as_num(&self) -> Option<f64> {
+    pub(super) fn as_num(&self) -> Option<f64> {
         match self {
             Num(f) => Some(*f),
             _ => None,
         }
     }
 
-    pub fn as_string(&self) -> Option<&str> {
+    pub(super) fn as_string(&self) -> Option<&str> {
         if let Obj(o) = self {
             o.as_string()
         } else {
@@ -44,7 +44,7 @@ impl Val {
         }
     }
 
-    pub fn as_table(&mut self) -> Option<&mut Table> {
+    pub(super) fn as_table(&mut self) -> Option<&mut Table> {
         if let Obj(o) = self {
             o.as_table()
         } else {
@@ -52,16 +52,15 @@ impl Val {
         }
     }
 
-    pub fn truthy(&self) -> bool {
+    pub(super) fn truthy(&self) -> bool {
         match self {
             Nil | Bool(false) => false,
             _ => true,
         }
     }
 
-    /// Return the value's type, represented as a string.
-    /// Equivalent to lua's `type()` function.
-    pub fn typ(&self) -> LuaType {
+    /// Returns the value's type.
+    pub(super) fn typ(&self) -> LuaType {
         match self {
             Nil => LuaType::Nil,
             Bool(_) => LuaType::Boolean,
@@ -72,14 +71,14 @@ impl Val {
     }
 }
 
-impl Debug for Val {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+impl fmt::Debug for Val {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Nil => write!(f, "nil"),
-            Bool(b) => Debug::fmt(b, f),
-            Num(n) => Debug::fmt(n, f),
+            Bool(b) => b.fmt(f),
+            Num(n) => n.fmt(f),
             RustFn(func) => write!(f, "<function: {:p}>", func),
-            Obj(o) => Debug::fmt(o, f),
+            Obj(o) => o.fmt(f),
         }
     }
 }
@@ -90,13 +89,13 @@ impl Default for Val {
     }
 }
 
-impl Display for Val {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+impl fmt::Display for Val {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Nil => write!(f, "nil"),
-            Bool(b) => Display::fmt(b, f),
-            Num(n) => Display::fmt(n, f),
-            Obj(o) => Display::fmt(o, f),
+            Bool(b) => b.fmt(f),
+            Num(n) => n.fmt(f),
+            Obj(o) => o.fmt(f),
             _ => write!(f, "{:#?}", self),
         }
     }
@@ -120,7 +119,7 @@ impl Hash for Val {
                 bits.hash(hasher);
             }
             RustFn(func) => {
-                let f = func as *const RustFunc;
+                let f: *const RustFunc = func;
                 f.hash(hasher);
             }
         }
@@ -134,8 +133,8 @@ impl PartialEq for Val {
             (Bool(a), Bool(b)) => a == b,
             (Num(a), Num(b)) => a == b,
             (RustFn(a), RustFn(b)) => {
-                let x = a as *const RustFunc;
-                let y = b as *const RustFunc;
+                let x: *const RustFunc = a;
+                let y: *const RustFunc = b;
                 x == y
             }
             (Obj(a), Obj(b)) => ObjectPtr::lua_eq(*a, *b),
@@ -175,7 +174,7 @@ impl LuaType {
     }
 }
 
-impl Display for LuaType {
+impl fmt::Display for LuaType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.as_string())
     }

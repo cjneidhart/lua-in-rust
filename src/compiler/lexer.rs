@@ -1,26 +1,25 @@
 //! This module contains functions which can tokenize a string input.
 
-use std::iter::Peekable;
-use std::str::CharIndices;
-
-use crate::Error;
-use crate::ErrorKind;
-use crate::Result;
-
+use super::Error;
+use super::ErrorKind;
+use super::Result;
 use super::Token;
 use super::TokenType::{self, *};
+
+use std::iter::Peekable;
+use std::str::CharIndices;
 
 /// A `TokenStream` is a wrapper around a `Lexer`. It provides a lookahead buffer and several
 /// helper methods.
 #[derive(Debug)]
-pub struct TokenStream<'a> {
+pub(super) struct TokenStream<'a> {
     lexer: Lexer<'a>,
     lookahead: Option<Token>,
 }
 
 /// A `Lexer` handles the raw conversion of characters to tokens.
 #[derive(Debug)]
-pub struct Lexer<'a> {
+pub(super) struct Lexer<'a> {
     /// The starting position of the next character.
     pos: usize,
     /// `linebreaks[i]` is the byte offset of the start of line `i`.
@@ -30,7 +29,7 @@ pub struct Lexer<'a> {
 }
 
 impl<'a> TokenStream<'a> {
-    pub fn new(source: &'a str) -> Self {
+    pub(super) fn new(source: &'a str) -> Self {
         TokenStream {
             lexer: Lexer::new(source),
             lookahead: None,
@@ -38,14 +37,14 @@ impl<'a> TokenStream<'a> {
     }
 
     /// Return the next Token.
-    pub fn next(&mut self) -> Result<Token> {
+    pub(super) fn next(&mut self) -> Result<Token> {
         match self.lookahead.take() {
             Some(token) => Ok(token),
             None => self.lexer.next_token(),
         }
     }
 
-    pub fn peek(&mut self) -> Result<&Token> {
+    pub(super) fn peek(&mut self) -> Result<&Token> {
         if self.lookahead.is_none() {
             self.lookahead = Some(self.lexer.next_token()?);
         }
@@ -53,18 +52,18 @@ impl<'a> TokenStream<'a> {
     }
 
     /// Return the type of the next token without popping it.
-    pub fn peek_type(&mut self) -> Result<TokenType> {
+    pub(super) fn peek_type(&mut self) -> Result<TokenType> {
         Ok(self.peek()?.typ)
     }
 
-    //pub fn peek_type_is(&mut self, expected_type: TokenType) -> Result<bool> {
-    pub fn check_type(&mut self, expected_type: TokenType) -> Result<bool> {
+    //pub(super) fn peek_type_is(&mut self, expected_type: TokenType) -> Result<bool> {
+    pub(super) fn check_type(&mut self, expected_type: TokenType) -> Result<bool> {
         Ok(self.peek_type()? == expected_type)
     }
 
     /// Checks the next token's type. If it matches `typ`, it is popped off and
     /// returned as `Some`. Else, we return `None`.
-    pub fn try_pop(&mut self, expected_type: TokenType) -> Result<Option<Token>> {
+    pub(super) fn try_pop(&mut self, expected_type: TokenType) -> Result<Option<Token>> {
         if self.check_type(expected_type)? {
             Ok(Some(self.next().unwrap()))
         } else {
@@ -72,24 +71,24 @@ impl<'a> TokenStream<'a> {
         }
     }
 
-    pub fn line_and_column(&self, pos: usize) -> (usize, usize) {
+    pub(super) fn line_and_column(&self, pos: usize) -> (usize, usize) {
         self.lexer.line_and_col(pos)
     }
 
-    pub fn pos(&self) -> usize {
+    pub(super) fn pos(&self) -> usize {
         match &self.lookahead {
             Some(token) => token.start,
             None => self.lexer.pos,
         }
     }
 
-    pub fn src(&self) -> &str {
+    pub(super) fn src(&self) -> &str {
         self.lexer.source
     }
 }
 
 impl<'a> Lexer<'a> {
-    pub fn new(source: &'a str) -> Self {
+    pub(super) fn new(source: &'a str) -> Self {
         let linebreaks = vec![0];
         Lexer {
             iter: source.char_indices().peekable(),
@@ -99,7 +98,7 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    pub fn next_token(&mut self) -> Result<Token> {
+    pub(super) fn next_token(&mut self) -> Result<Token> {
         let _starts_line = self.consume_whitespace();
         let tok_start = self.pos;
         if let Some(first_char) = self.next_char() {

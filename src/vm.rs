@@ -2,21 +2,28 @@
 //! components of the VM.
 
 mod frame;
+mod lua_val;
+mod object;
+mod table;
+
+pub use lua_val::LuaType;
+pub use lua_val::RustFunc;
 
 use std::collections::HashMap;
 use std::io;
 
-use crate::compiler;
-use crate::lua_std;
-use crate::Chunk;
-use crate::Error;
-use crate::ErrorKind;
-use crate::GcHeap;
-use crate::Markable;
-use crate::Result;
-use crate::Val;
+use super::compiler;
+use super::lua_std;
+use super::Chunk;
+use super::Error;
+use super::ErrorKind;
+use super::Instr;
+use super::Result;
 
 use frame::Frame;
+use lua_val::Val;
+use object::{GcHeap, Markable};
+use table::Table;
 
 #[derive(Default)]
 pub struct State {
@@ -98,8 +105,9 @@ impl State {
         self.stack.push(Val::Obj(t));
     }
 
-    pub fn get_global(&self, s: &str) -> Val {
-        self.globals.get(s).cloned().unwrap_or_default()
+    pub fn get_global(&mut self, s: &str) {
+        let val = self.globals.get(s).cloned().unwrap_or_default();
+        self.stack.push(val);
     }
 
     pub fn get_top(&mut self) -> usize {
@@ -148,6 +156,10 @@ impl State {
         self.stack.push(Val::Num(n));
     }
 
+    pub fn push_rust_fn(&mut self, f: RustFunc) {
+        self.stack.push(Val::RustFn(f));
+    }
+
     /// Pushes the given string onto the stack.
     pub fn push_string(&mut self, s: String) {
         self.check_heap();
@@ -170,7 +182,8 @@ impl State {
         self.stack[idx] = val;
     }
 
-    pub fn set_global(&mut self, name: &str, val: Val) {
+    pub fn set_global(&mut self, name: &str) {
+        let val = self.pop_val();
         self.globals.insert(name.to_string(), val);
     }
 
@@ -192,6 +205,11 @@ impl State {
         self.stack[i].to_string()
     }
 
+    pub fn typ(&self, idx: isize) -> LuaType {
+        self.at_index(idx).typ()
+    }
+
+    // TODO Remove this so we don't expose the `Chunk` type.
     pub fn eval_chunk(&mut self, chunk: Chunk) -> Result<()> {
         let strings = self.alloc_strings(&chunk.string_literals);
         let old_stack_bottom = self.stack_bottom;
@@ -274,12 +292,11 @@ impl State {
 
 #[cfg(test)]
 mod tests {
+    use super::compiler::parse_str;
+    use super::lua_val::Val;
+    use super::Chunk;
+    use super::Instr::*;
     use super::State;
-
-    use crate::compiler::parse_str;
-    use crate::Chunk;
-    use crate::Instr::*;
-    use crate::Val;
 
     #[test]
     fn vm_test01() {

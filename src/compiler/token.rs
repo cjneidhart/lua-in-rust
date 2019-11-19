@@ -1,15 +1,15 @@
 use std::ops::Range;
 
 #[derive(Debug, PartialEq)]
-pub struct Token {
-    pub typ: TokenType,
-    pub start: usize,
-    pub len: u32,
+pub(super) struct Token {
+    pub(super) typ: TokenType,
+    pub(super) start: usize,
+    pub(super) len: u32,
 }
 
 #[rustfmt::skip]
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub enum TokenType {
+pub(super) enum TokenType {
     // Keywords
     And, Break, Do, Else, ElseIf, End, False, For, Function, If, In, Local,
     Nil, Not, Or, Repeat, Return, Then, True, Until, While,
@@ -31,11 +31,11 @@ pub enum TokenType {
 }
 
 impl Token {
-    pub fn new(typ: TokenType, start: usize, len: u32) -> Self {
+    pub(super) fn new(typ: TokenType, start: usize, len: u32) -> Self {
         Token { typ, start, len }
     }
 
-    pub fn range(&self) -> Range<usize> {
+    pub(super) fn range(&self) -> Range<usize> {
         let start = self.start;
         let end = start + self.len as usize;
         start..end

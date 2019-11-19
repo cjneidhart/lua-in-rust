@@ -1,16 +1,15 @@
+use super::lexer::TokenStream;
+use super::Chunk;
+use super::Error;
+use super::ErrorKind;
+use super::Instr;
+use super::Result;
+use super::Token;
+use super::TokenType;
+
 use std::mem::swap;
 use std::str;
 use std::u8;
-
-use crate::Error;
-use crate::ErrorKind;
-use crate::Instr;
-use crate::Result;
-
-use super::lexer::TokenStream;
-use super::Chunk;
-use super::Token;
-use super::TokenType;
 
 /// Tracks the current state, to make parsing easier.
 #[derive(Debug)]
@@ -38,7 +37,7 @@ enum PrefixExp {
     Parenthesized,
 }
 
-pub fn parse_str(source: &str) -> Result<Chunk> {
+pub(super) fn parse_str(source: &str) -> Result<Chunk> {
     let parser = Parser {
         input: TokenStream::new(source),
         chunk: Chunk::default(),
@@ -49,7 +48,7 @@ pub fn parse_str(source: &str) -> Result<Chunk> {
     parser.parse_all()
 }
 
-impl<'a> Parser<'a> {
+impl Parser<'_> {
     // Helper functions
 
     /// Creates a new local slot at the current nest_level.
@@ -875,9 +874,9 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::super::parse_str;
+    use super::parse_str;
     use super::Chunk;
-    use crate::instr::Instr::{self, *};
+    use super::Instr::{self, *};
 
     fn check_it(input: &str, output: Chunk) {
         assert_eq!(parse_str(input).unwrap(), output);

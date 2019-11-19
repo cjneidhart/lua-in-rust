@@ -1,18 +1,18 @@
-use crate::Error;
-use crate::ErrorKind;
-use crate::Markable;
-use crate::Result;
-use crate::Val;
-
 use std::collections::HashMap;
 
-#[derive(Clone, Debug, Default)]
-pub struct Table {
+use super::Error;
+use super::ErrorKind;
+use super::Markable;
+use super::Result;
+use super::Val;
+
+#[derive(Debug, Default)]
+pub(super) struct Table {
     map: HashMap<Val, Val>,
 }
 
 impl Table {
-    pub fn get(&self, key: &Val) -> Val {
+    pub(super) fn get(&self, key: &Val) -> Val {
         match key {
             Val::Nil => Val::Nil,
             Val::Num(n) if n.is_nan() => Val::Nil,
@@ -20,7 +20,7 @@ impl Table {
         }
     }
 
-    pub fn insert(&mut self, key: Val, value: Val) -> Result<()> {
+    pub(super) fn insert(&mut self, key: Val, value: Val) -> Result<()> {
         match key {
             Val::Nil => Err(Error::new(ErrorKind::TableKeyNil, 0, 0)),
             Val::Num(n) if n.is_nan() => Err(Error::new(ErrorKind::TableKeyNan, 0, 0)),

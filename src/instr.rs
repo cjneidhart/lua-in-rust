@@ -6,6 +6,7 @@
 /// Several others use a u8 parameter to index either the locals, the number
 /// literals, or the string literals.
 #[derive(Clone, Copy, Debug, PartialEq)]
+// TODO Make this pub(super).
 pub enum Instr {
     /// Move the instruction pointer by the given offset.
     Jump(isize),

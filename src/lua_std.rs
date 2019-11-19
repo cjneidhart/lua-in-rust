@@ -1,16 +1,16 @@
 //! Lua's Standard Library
 
-use crate::ErrorKind;
-use crate::Result;
-use crate::State;
-use crate::Val;
+use super::ErrorKind;
+use super::Result;
+use super::State;
 
-pub fn init(state: &mut State) {
-    let mut global_insert = |name, func| {
-        state.set_global(name, Val::RustFn(func));
+pub(super) fn init(state: &mut State) {
+    let mut add = |name, func| {
+        state.push_rust_fn(func);
+        state.set_global(name);
     };
-    global_insert("assert", lua_assert);
-    global_insert("print", lua_print);
+    add("assert", lua_assert);
+    add("print", lua_print);
 }
 
 fn lua_assert(state: &mut State) -> Result<u8> {
