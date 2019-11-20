@@ -3,6 +3,7 @@ use std::ops;
 use super::Chunk;
 use super::ErrorKind;
 use super::Instr;
+use super::LuaType;
 use super::Markable;
 use super::Result;
 use super::State;
@@ -131,6 +132,7 @@ impl Frame {
                 Instr::ForPrep(slot, len) => state.instr_for_prep(self, slot, len)?,
 
                 // Unary
+                Instr::Length => state.instr_length()?,
                 Instr::Negate => state.instr_negate()?,
                 Instr::Not => state.instr_not(),
 
@@ -146,8 +148,6 @@ impl Frame {
                 Instr::Concat => {
                     state.concat(2)?;
                 }
-
-                _ => panic!("Unsupported: {:?}", inst),
             }
         }
     }
@@ -247,6 +247,22 @@ impl State {
         t.insert(key, val)?;
         self.stack.push(tbl);
         Ok(())
+    }
+
+    fn instr_length(&mut self) -> Result<()> {
+        let val = self.pop_val();
+        match val.typ() {
+            LuaType::String => {
+                let s = val.as_string().unwrap();
+                let len = s.len();
+                self.stack.push(Val::Num(len as f64));
+                Ok(())
+            }
+            LuaType::Table => {
+                panic!("Unsupported: Length of tables");
+            }
+            _ => Err(self.type_error()),
+        }
     }
 
     fn instr_negate(&mut self) -> Result<()> {
