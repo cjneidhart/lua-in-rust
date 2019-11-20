@@ -109,7 +109,10 @@ impl Hash for Val {
         match self {
             Nil => (),
             Bool(b) => b.hash(hasher),
-            Obj(o) => o.hash(hasher),
+            Obj(o) => match o.as_string() {
+                Some(s) => s.hash(hasher),
+                None => o.hash(hasher),
+            },
             Num(n) => {
                 debug_assert!(!n.is_nan(), "Can't hash NaN");
                 let mut bits = n.to_bits();
