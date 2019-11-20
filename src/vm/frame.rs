@@ -70,7 +70,7 @@ impl Frame {
                 Instr::Jump(offset) => self.jump(offset),
                 Instr::BranchFalse(ofst) => state.instr_branch(self, false, ofst, false),
                 Instr::BranchFalseKeep(ofst) => state.instr_branch(self, false, ofst, true),
-                Instr::BranchTrue(ofst) => state.instr_branch(self, true, ofst, false),
+                //Instr::BranchTrue(ofst) => state.instr_branch(self, true, ofst, false),
                 Instr::BranchTrueKeep(ofst) => state.instr_branch(self, true, ofst, true),
 
                 // Local variables

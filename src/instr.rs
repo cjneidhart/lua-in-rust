@@ -6,14 +6,13 @@
 /// Several others use a u8 parameter to index either the locals, the number
 /// literals, or the string literals.
 #[derive(Clone, Copy, Debug, PartialEq)]
-// TODO Make this pub(super).
-pub enum Instr {
+pub(super) enum Instr {
     /// Move the instruction pointer by the given offset.
     Jump(isize),
 
     /// Pop a value from the stack. If it's truthy, add the given offset to the
     /// instruction pointer.
-    BranchTrue(isize),
+    //BranchTrue(isize),
 
     /// Pop a value from the stack. If it's falsey, add the given offset to the
     /// instruction pointer.

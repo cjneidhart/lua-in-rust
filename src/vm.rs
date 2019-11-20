@@ -10,7 +10,9 @@ pub use lua_val::LuaType;
 pub use lua_val::RustFunc;
 
 use std::collections::HashMap;
+use std::fs;
 use std::io;
+use std::path::Path;
 
 use super::compiler;
 use super::lua_std;
@@ -105,6 +107,16 @@ impl State {
         self.stack.push(Val::Obj(t));
     }
 
+    pub fn do_file(&mut self, filename: impl AsRef<Path>) -> Result<()> {
+        self.load_file(filename)?;
+        self.call(0, 0)
+    }
+
+    pub fn do_string(&mut self, s: impl AsRef<str>) -> Result<()> {
+        self.load_string(s)?;
+        self.call(0, 0)
+    }
+
     pub fn get_global(&mut self, s: &str) {
         let val = self.globals.get(s).cloned().unwrap_or_default();
         self.stack.push(val);
@@ -118,27 +130,25 @@ impl State {
     /// the chunk. If the code is syntactically invalid, but could be valid if
     /// more code was appended, then `reader` will be called again. A common use
     /// for this function is for `reader` to query the user for a line of input.
-    pub fn load<F>(mut reader: F) -> Result<Chunk>
-    where
-        F: FnMut(&mut String) -> io::Result<usize>,
-    {
+    pub fn load(&mut self, reader: &mut impl io::Read) -> Result<()> {
         let mut buffer = String::new();
-        loop {
-            match reader(&mut buffer) {
-                Ok(_) => (),
-                Err(e) => {
-                    return Err(Error::from_io_error(e));
-                }
-            }
-            match compiler::parse_str(&buffer) {
-                Err(ref e) if e.is_recoverable() => {
-                    continue;
-                }
-                result => {
-                    return result;
-                }
-            }
-        }
+        reader
+            .read_to_string(&mut buffer)
+            .map_err(Error::from_io_error)?;
+        compiler::parse_str(&buffer).map(|chunk| {
+            self.push_chunk(chunk);
+        })
+    }
+
+    pub fn load_file(&mut self, filename: impl AsRef<Path>) -> Result<()> {
+        let mut reader = fs::File::open(filename).map_err(Error::from_io_error)?;
+        self.load(&mut reader)
+    }
+
+    pub fn load_string(&mut self, s: impl AsRef<str>) -> Result<()> {
+        let c = compiler::parse_str(s)?;
+        self.push_chunk(c);
+        Ok(())
     }
 
     /// Pushes a boolean onto the stack.
@@ -209,21 +219,6 @@ impl State {
         self.at_index(idx).typ()
     }
 
-    // TODO Remove this so we don't expose the `Chunk` type.
-    pub fn eval_chunk(&mut self, chunk: Chunk) -> Result<()> {
-        let strings = self.alloc_strings(&chunk.string_literals);
-        let old_stack_bottom = self.stack_bottom;
-        self.stack_bottom = self.stack.len();
-        for _ in 0..(chunk.num_locals) {
-            self.stack.push(Val::Nil);
-        }
-        let mut frame = Frame::new(chunk, strings);
-        frame.eval(self)?;
-        self.stack_bottom = old_stack_bottom;
-        self.stack.truncate(old_stack_bottom);
-        Ok(())
-    }
-
     /// Allocate every string in `strs` on the heap.
     /// The `Val`s returned are always strings.
     fn alloc_strings<I, S>(&mut self, strs: I) -> Vec<Val>
@@ -280,9 +275,29 @@ impl State {
         Error::new(kind, pos, column)
     }
 
+    fn eval_chunk(&mut self, chunk: Chunk) -> Result<()> {
+        let strings = self.alloc_strings(&chunk.string_literals);
+        let old_stack_bottom = self.stack_bottom;
+        self.stack_bottom = self.stack.len();
+        for _ in 0..(chunk.num_locals) {
+            self.stack.push(Val::Nil);
+        }
+        let mut frame = Frame::new(chunk, strings);
+        frame.eval(self)?;
+        self.stack_bottom = old_stack_bottom;
+        self.stack.truncate(old_stack_bottom);
+        Ok(())
+    }
+
     /// Pop a value from the stack
     fn pop_val(&mut self) -> Val {
         self.stack.pop().unwrap()
+    }
+
+    fn push_chunk(&mut self, chunk: Chunk) {
+        self.check_heap();
+        let obj = self.heap.new_lua_fn(chunk);
+        self.stack.push(Val::Obj(obj));
     }
 
     fn type_error(&self) -> Error {
