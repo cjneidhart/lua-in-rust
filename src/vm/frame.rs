@@ -82,7 +82,7 @@ impl Frame {
 
                 // Functions
                 Instr::Closure(i) => state.instr_closure(self, i),
-                Instr::Call(num_args) => state.call(num_args, 0)?,
+                Instr::Call(num_args, num_rets) => state.call(num_args, num_rets)?,
                 Instr::Return => {
                     return Ok(());
                 }

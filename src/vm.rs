@@ -9,6 +9,7 @@ mod table;
 pub use lua_val::LuaType;
 pub use lua_val::RustFunc;
 
+use std::cmp;
 use std::collections::HashMap;
 use std::fs;
 use std::io;
@@ -60,19 +61,23 @@ impl State {
         me
     }
 
-    pub fn call(&mut self, num_args: u8, num_results: u8) -> Result<()> {
-        assert!(num_results == 0, "Can't return values from functions yet.");
+    pub fn call(&mut self, num_args: u8, num_ret_expected: u8) -> Result<()> {
+        assert!(num_ret_expected <= 1, "Can't return multiple values yet.");
         let idx = self.stack.len() - num_args as usize - 1;
         let func_val = self.stack.remove(idx);
         if let Val::RustFn(f) = func_val {
             let old_stack_bottom = self.stack_bottom;
             self.stack_bottom = idx;
-            let re = f(self).map(|n| {
-                assert!(n == 0, "Can't return values from functions yet.");
-            });
-            self.stack.truncate(self.stack_bottom);
+            let num_ret_actual = f(self)?;
+            assert!(num_ret_actual <= 1, "Can't return multiple values yet.");
+            self.stack.truncate(idx + num_ret_actual as usize);
             self.stack_bottom = old_stack_bottom;
-            re
+            match (num_ret_expected, num_ret_actual) {
+                (1, 0) => self.push_nil(),
+                (0, 1) => self.pop(1),
+                _ => (),
+            }
+            Ok(())
         } else if let Some(chunk) = func_val.as_lua_function() {
             self.eval_chunk(chunk)
         } else {
@@ -149,6 +154,14 @@ impl State {
         let c = compiler::parse_str(s)?;
         self.push_chunk(c);
         Ok(())
+    }
+
+    pub fn pop(&mut self, n: isize) {
+        assert!(n > 0);
+        let n = cmp::min(n as usize, self.get_top());
+        for _ in 0..n {
+            self.pop_val();
+        }
     }
 
     /// Pushes a boolean onto the stack.
@@ -286,6 +299,8 @@ impl State {
         frame.eval(self)?;
         self.stack_bottom = old_stack_bottom;
         self.stack.truncate(old_stack_bottom);
+        // Lua functions can't return values yet.
+        self.push_nil();
         Ok(())
     }
 

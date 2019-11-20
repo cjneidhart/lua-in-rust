@@ -18,6 +18,7 @@ pub enum ErrorKind {
     TableKeyNan,
     TableKeyNil,
     TypeError,
+    WithMessage(String),
 }
 
 #[derive(Debug)]
@@ -55,6 +56,7 @@ impl fmt::Display for ErrorKind {
             TableKeyNan => write!(f, "table index was NaN"),
             TableKeyNil => write!(f, "table index was nil"),
             TypeError => write!(f, "type error"),
+            WithMessage(s) => write!(f, "{}", s),
         }
     }
 }

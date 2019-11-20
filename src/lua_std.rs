@@ -1,5 +1,6 @@
 //! Lua's Standard Library
 
+use super::Error;
 use super::ErrorKind;
 use super::Result;
 use super::State;
@@ -11,6 +12,7 @@ pub(super) fn init(state: &mut State) {
     };
     add("assert", lua_assert);
     add("print", lua_print);
+    add("type", lua_type);
 }
 
 fn lua_assert(state: &mut State) -> Result<u8> {
@@ -33,4 +35,18 @@ fn lua_print(state: &mut State) -> Result<u8> {
     }
     println!();
     Ok(0)
+}
+
+fn lua_type(state: &mut State) -> Result<u8> {
+    if state.get_top() == 0 {
+        let message = "bad argument #1 to 'type' (value expected)".to_string();
+        return Err(Error::new(ErrorKind::WithMessage(message), 0, 0));
+    }
+
+    let typ = state.typ(1);
+    let typ_string = typ.to_string();
+    state.pop(1);
+    state.push_string(typ_string);
+
+    Ok(1)
 }

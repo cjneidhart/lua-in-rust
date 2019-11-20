@@ -20,3 +20,8 @@ fn test02() -> Result<()> {
 fn test03() -> Result<()> {
     run_file("tests/test03.lua")
 }
+
+#[test]
+fn test04() -> Result<()> {
+    run_file("tests/test04.lua")
+}

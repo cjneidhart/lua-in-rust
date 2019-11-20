@@ -33,7 +33,7 @@ enum PlaceExp {
 
 enum PrefixExp {
     Place(PlaceExp),
-    FunctionCall,
+    FunctionCall(u8),
     Parenthesized,
 }
 
@@ -200,7 +200,10 @@ impl Parser<'_> {
                 let tok = self.input.next()?;
                 Err(self.err_unexpected(tok, TokenType::Assign))
             }
-            PrefixExp::FunctionCall => Ok(()),
+            PrefixExp::FunctionCall(num_args) => {
+                self.push(Instr::Call(num_args, 0));
+                Ok(())
+            }
             PrefixExp::Place(first_place) => self.parse_assign(first_place),
         }
     }
@@ -249,7 +252,7 @@ impl Parser<'_> {
     /// Parse an expression which can appear on the left side of an assignment.
     fn parse_place_exp(&mut self) -> Result<PlaceExp> {
         match self.parse_prefix_exp()? {
-            PrefixExp::Parenthesized | PrefixExp::FunctionCall => {
+            PrefixExp::Parenthesized | PrefixExp::FunctionCall(_) => {
                 let tok = self.input.next()?;
                 Err(self.err_unexpected(tok, TokenType::Assign))
             }
@@ -257,15 +260,22 @@ impl Parser<'_> {
         }
     }
 
+    /// Emit code to evaluate the prefix expression as a normal expression.
     fn eval_prefix_exp(&mut self, exp: PrefixExp) {
-        if let PrefixExp::Place(place) = exp {
-            let instr = match place {
-                PlaceExp::Local(i) => Instr::GetLocal(i),
-                PlaceExp::Global(i) => Instr::GetGlobal(i),
-                PlaceExp::FieldAssign(i) => Instr::GetField(i),
-                PlaceExp::TableIndex => Instr::GetTable,
-            };
-            self.push(instr);
+        match exp {
+            PrefixExp::FunctionCall(num_args) => {
+                self.push(Instr::Call(num_args, 1));
+            }
+            PrefixExp::Parenthesized => (),
+            PrefixExp::Place(place) => {
+                let instr = match place {
+                    PlaceExp::Local(i) => Instr::GetLocal(i),
+                    PlaceExp::Global(i) => Instr::GetGlobal(i),
+                    PlaceExp::FieldAssign(i) => Instr::GetField(i),
+                    PlaceExp::TableIndex => Instr::GetTable,
+                };
+                self.push(instr);
+            }
         }
     }
 
@@ -718,8 +728,9 @@ impl Parser<'_> {
             TokenType::LParen => {
                 self.eval_prefix_exp(base_expr);
                 self.input.next()?;
-                self.parse_call()?;
-                self.parse_prefix_extension(PrefixExp::FunctionCall)
+                let num_args = self.parse_call()?;
+                let prefix = PrefixExp::FunctionCall(num_args);
+                self.parse_prefix_extension(prefix)
             }
             TokenType::Colon => panic!("Method calls unsupported"),
             TokenType::LiteralString | TokenType::LCurly => {
@@ -829,15 +840,14 @@ impl Parser<'_> {
         Ok(())
     }
 
-    fn parse_call(&mut self) -> Result<()> {
+    fn parse_call(&mut self) -> Result<u8> {
         let num_args = if self.input.check_type(TokenType::RParen)? {
             0
         } else {
             self.parse_explist()?
         };
         self.expect(TokenType::RParen)?;
-        self.push(Instr::Call(num_args));
-        Ok(())
+        Ok(num_args)
     }
 }
 
@@ -1203,7 +1213,7 @@ mod tests {
             SetLocal(0),
             GetGlobal(0),
             GetLocal(1),
-            Call(1),
+            Call(1, 0),
             Return,
         ];
         let chunk = Chunk {
@@ -1363,7 +1373,7 @@ mod tests {
     #[test]
     fn test25() {
         let text = "puts()";
-        let code = vec![GetGlobal(0), Call(0), Return];
+        let code = vec![GetGlobal(0), Call(0, 0), Return];
         let chunk = Chunk {
             code,
             number_literals: vec![],
@@ -1463,7 +1473,7 @@ mod tests {
                 SetLocal(0),
                 GetGlobal(0),
                 GetLocal(0),
-                Call(1),
+                Call(1, 0),
                 Return,
             ],
             string_literals: vec!["print".into()],
@@ -1478,5 +1488,42 @@ mod tests {
             ..Chunk::default()
         };
         check_it(text, outer_chunk);
+    }
+
+    #[test]
+    fn test31() {
+        let text = "local s = type(4)";
+        let code = vec![GetGlobal(0), PushNum(0), Call(1, 1), SetLocal(0), Return];
+        let chunk = Chunk {
+            code,
+            num_locals: 1,
+            number_literals: vec![4.0],
+            string_literals: vec!["type".into()],
+            ..Chunk::default()
+        };
+        check_it(text, chunk);
+    }
+
+    #[test]
+    fn test32() {
+        let text = "local type, print print(type(nil))";
+        let code = vec![
+            PushNil,
+            PushNil,
+            SetLocal(1),
+            SetLocal(0),
+            GetLocal(1),
+            GetLocal(0),
+            PushNil,
+            Call(1, 1),
+            Call(1, 0),
+            Return,
+        ];
+        let chunk = Chunk {
+            code,
+            num_locals: 2,
+            ..Chunk::default()
+        };
+        check_it(text, chunk);
     }
 }
