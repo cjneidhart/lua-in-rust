@@ -55,12 +55,27 @@ impl Markable for State {
 }
 
 impl State {
+    /// Creates a new, independent state. This corresponds to the `lua_newstate`
+    /// function in the C API.
     pub fn new() -> Self {
         let mut me = State::default();
         lua_std::init(&mut me);
         me
     }
 
+    /// Calls a function.
+    ///
+    /// To call a function you must use the following protocol: first, the
+    /// function to be called is pushed onto the stack; then, the arguments to
+    /// the function are pushed in direct order; that is, the first argument is
+    /// pushed first. Finally you call `lua_call`; `num_args` is the number of
+    /// arguments that you pushed onto the stack. All arguments and the function
+    /// value are popped from the stack when the function is called. The
+    /// function results are pushed onto the stack when the function returns.
+    /// The number of results is adjusted to `num_ret_expected`. The function
+    /// results are pushed onto the stack in direct order (the first result is
+    /// pushed first), so that after the call the last result is on the top of
+    /// the stack.
     pub fn call(&mut self, num_args: u8, num_ret_expected: u8) -> Result<()> {
         assert!(num_ret_expected <= 1, "Can't return multiple values yet.");
         let idx = self.stack.len() - num_args as usize - 1;
@@ -105,28 +120,27 @@ impl State {
         }
     }
 
-    pub fn create_table(&mut self, size: usize) {
-        assert!(size == 0, "Pre-allocating tables is unsupported.");
-        self.check_heap();
-        let t = self.heap.new_table();
-        self.stack.push(Val::Obj(t));
-    }
-
+    /// Loads and runs the given file.
     pub fn do_file(&mut self, filename: impl AsRef<Path>) -> Result<()> {
         self.load_file(filename)?;
         self.call(0, 0)
     }
 
+    /// Loads and runs the given string.
     pub fn do_string(&mut self, s: impl AsRef<str>) -> Result<()> {
         self.load_string(s)?;
         self.call(0, 0)
     }
 
-    pub fn get_global(&mut self, s: &str) {
-        let val = self.globals.get(s).cloned().unwrap_or_default();
+    /// Pushes onto the stack the value of the global `name`.
+    pub fn get_global(&mut self, name: &str) {
+        let val = self.globals.get(name).cloned().unwrap_or_default();
         self.stack.push(val);
     }
 
+    /// Returns the index of the top element in the stack. Because indices start
+    /// at 1, this result is equal to the number of elements in the stack (and
+    /// so 0 means an empty stack).
     pub fn get_top(&mut self) -> usize {
         self.stack.len() - self.stack_bottom
     }
@@ -145,17 +159,31 @@ impl State {
         })
     }
 
+    /// Loads a file as a Lua chunk. This function uses `load` to load the chunk
+    /// in the file named `filename`.
+    ///
+    /// This function only loads the chunk; it does not run it.
     pub fn load_file(&mut self, filename: impl AsRef<Path>) -> Result<()> {
         let mut reader = fs::File::open(filename).map_err(Error::from_io_error)?;
         self.load(&mut reader)
     }
 
+    /// Loads a string as a Lua chunk. This function uses `load` to load the
+    /// chunk in the string `s`.
     pub fn load_string(&mut self, s: impl AsRef<str>) -> Result<()> {
         let c = compiler::parse_str(s)?;
         self.push_chunk(c);
         Ok(())
     }
 
+    /// Creates a new empty table and pushes it onto the stack.
+    pub fn new_table(&mut self) {
+        self.check_heap();
+        let t = self.heap.new_table();
+        self.stack.push(Val::Obj(t));
+    }
+
+    /// Pops `n` elements from the stack.
     pub fn pop(&mut self, n: isize) {
         assert!(n > 0);
         let n = cmp::min(n as usize, self.get_top());
@@ -179,6 +207,7 @@ impl State {
         self.stack.push(Val::Num(n));
     }
 
+    /// Pushes a Rust function onto the stack.
     pub fn push_rust_fn(&mut self, f: RustFunc) {
         self.stack.push(Val::RustFn(f));
     }
@@ -205,6 +234,8 @@ impl State {
         self.stack[idx] = val;
     }
 
+    /// Pops a value from the stack and sets it as the new value of global
+    /// `name`.
     pub fn set_global(&mut self, name: &str) {
         let val = self.pop_val();
         self.globals.insert(name.to_string(), val);
@@ -228,6 +259,7 @@ impl State {
         self.stack[i].to_string()
     }
 
+    /// Returns the type of the value in the given acceptable index.
     pub fn typ(&self, idx: isize) -> LuaType {
         self.at_index(idx).typ()
     }

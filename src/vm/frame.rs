@@ -137,7 +137,7 @@ impl Frame {
                 Instr::Not => state.instr_not(),
 
                 // Manipulating tables
-                Instr::NewTable => state.create_table(0),
+                Instr::NewTable => state.new_table(),
                 Instr::GetField(i) => state.instr_get_field(self, i)?,
                 Instr::GetTable => state.instr_get_table()?,
                 Instr::InitField(i) => state.instr_init_field(self, i)?,
