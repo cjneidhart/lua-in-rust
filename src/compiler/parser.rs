@@ -189,9 +189,11 @@ impl Parser<'_> {
                 TokenType::Do => self.parse_do()?,
                 TokenType::Local => self.parse_locals()?,
                 TokenType::For => self.parse_for()?,
+                TokenType::Semi => {
+                    self.input.next()?;
+                }
                 _ => break Ok(()),
             }
-            self.input.try_pop(TokenType::Semi)?;
         }
     }
 
