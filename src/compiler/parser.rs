@@ -7,6 +7,7 @@ use super::Result;
 use super::Token;
 use super::TokenType;
 
+use std::cmp::Ordering;
 use std::mem::swap;
 use std::str;
 use std::u8;
@@ -308,14 +309,18 @@ impl Parser<'_> {
         if self.input.try_pop(TokenType::Assign)?.is_some() {
             let num_rvalues = self.parse_explist()? as isize;
             let diff = num_names - num_rvalues;
-            if diff < 0 {
-                for _ in diff..0 {
-                    self.push(Instr::Pop);
+            match diff.cmp(&0) {
+                Ordering::Less => {
+                    for _ in diff..0 {
+                        self.push(Instr::Pop);
+                    }
                 }
-            } else if diff > 0 {
-                for _ in 0..diff {
-                    self.push(Instr::PushNil);
+                Ordering::Greater => {
+                    for _ in 0..diff {
+                        self.push(Instr::PushNil);
+                    }
                 }
+                Ordering::Equal => (),
             }
         } else {
             for _ in 0..num_names {
@@ -829,7 +834,7 @@ impl Parser<'_> {
         match tok.typ {
             TokenType::Identifier => {
                 let s = self.get_text(tok);
-                let index = self.find_or_add_string(s.to_string())?;
+                let index = self.find_or_add_string(s)?;
                 self.expect(TokenType::Assign)?;
                 self.parse_expr()?;
                 self.push(Instr::InitField(index));

@@ -210,7 +210,7 @@ impl State {
         if let Some(t) = tbl_val.as_table() {
             let key = frame.get_string_constant(field_id);
             let val = t.get(&key);
-            self.stack.push(val.clone());
+            self.stack.push(val);
             Ok(())
         } else {
             Err(self.type_error())
