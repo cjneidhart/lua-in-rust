@@ -100,9 +100,7 @@ impl Parser<'_> {
     /// Expect an identifier token and get the actual identifier from the text.
     fn expect_identifier(&mut self) -> Result<String> {
         let token = self.expect(TokenType::Identifier)?;
-        let Token { start, len, .. } = token;
-        let end = start + len as usize;
-        let name = &self.src()[start..end];
+        let name = self.get_text(token);
         Ok(name.to_string())
     }
 
@@ -118,13 +116,17 @@ impl Parser<'_> {
     }
 
     /// Converts a literal string's offsets into a real String.
-    fn get_string_from_text(&self, start: usize, len: u32) -> String {
+    fn get_literal_string_contents(&self, tok: Token) -> String {
         // Chop off the quotes
-        self.input.src()[(start + 1)..(start + len as usize - 1)].to_string()
+        let Token { start, len, typ } = tok;
+        assert_eq!(typ, TokenType::LiteralString);
+        assert!(len >= 2);
+        let range = (start + 1)..(start + len as usize - 1);
+        self.input.from_src(range).to_string()
     }
 
     fn get_text(&self, token: Token) -> String {
-        self.src()[token.range()].to_string()
+        self.input.from_src(token.range()).to_string()
     }
 
     /// Lower the nesting level by one, discarding any locals from that block.
@@ -142,10 +144,6 @@ impl Parser<'_> {
     /// Adds an instruction to the output.
     fn push(&mut self, instr: Instr) {
         self.chunk.code.push(instr);
-    }
-
-    fn src(&self) -> &str {
-        self.input.src()
     }
 
     // Actual parsing
@@ -771,7 +769,7 @@ impl Parser<'_> {
                 self.push(Instr::PushNum(i));
             }
             TokenType::LiteralString => {
-                let s = self.get_string_from_text(tok.start, tok.len);
+                let s = self.get_literal_string_contents(tok);
                 let i = self.find_or_add_string(s)?;
                 self.push(Instr::PushString(i));
             }

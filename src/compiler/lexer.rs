@@ -7,6 +7,7 @@ use super::Token;
 use super::TokenType::{self, *};
 
 use std::iter::Peekable;
+use std::slice::SliceIndex;
 use std::str::CharIndices;
 
 /// A `TokenStream` is a wrapper around a `Lexer`. It provides a lookahead buffer and several
@@ -82,8 +83,8 @@ impl<'a> TokenStream<'a> {
         }
     }
 
-    pub(super) fn src(&self) -> &str {
-        self.lexer.source
+    pub(super) fn from_src(&self, index: impl SliceIndex<str, Output = str>) -> &str {
+        &self.lexer.source[index]
     }
 }
 
