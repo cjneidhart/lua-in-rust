@@ -1,5 +1,6 @@
 use std::ops::Range;
 
+/// A lexical unit in the source code.
 #[derive(Debug, PartialEq)]
 pub(super) struct Token {
     pub(super) typ: TokenType,
@@ -31,10 +32,6 @@ pub(super) enum TokenType {
 }
 
 impl Token {
-    pub(super) fn new(typ: TokenType, start: usize, len: u32) -> Self {
-        Token { typ, start, len }
-    }
-
     pub(super) fn range(&self) -> Range<usize> {
         let start = self.start;
         let end = start + self.len as usize;

@@ -7,6 +7,7 @@ use super::Result;
 use super::Token;
 use super::TokenType;
 
+use std::borrow::Borrow;
 use std::cmp::Ordering;
 use std::mem::swap;
 use std::str;
@@ -26,18 +27,29 @@ struct Parser<'a> {
 /// This represents an expression which can appear on the left-hand side of an assignment.
 /// Also called an "lvalue" in other languages.
 enum PlaceExp {
+    /// A local variable, and its index in the list of locals
     Local(u8),
+    /// A global variable, and its index in the list of string literals
     Global(u8),
+    /// A table index, with `[` and `]`
     TableIndex,
-    FieldAssign(u8),
+    /// A field access, and the index of the field's identifier in the list of
+    /// string literals
+    FieldAccess(u8),
 }
 
+/// A "prefix expression" is an expression which could be followed by certain
+/// extensions and still be a valid expression.
 enum PrefixExp {
+    /// One of the variants of `PlaceExp`
     Place(PlaceExp),
+    /// A function call, and the number of arguments
     FunctionCall(u8),
+    /// An expression wrapped in parentheses
     Parenthesized,
 }
 
+/// Parses Lua source code into a `Chunk`.
 pub(super) fn parse_str(source: &str) -> Result<Chunk> {
     let parser = Parser {
         input: TokenStream::new(source),
@@ -49,11 +61,11 @@ pub(super) fn parse_str(source: &str) -> Result<Chunk> {
     parser.parse_all()
 }
 
-impl Parser<'_> {
+impl<'a> Parser<'a> {
     // Helper functions
 
     /// Creates a new local slot at the current nest_level.
-    /// Fail if we have exceeded the maximum number of locals.
+    /// Fails if we have exceeded the maximum number of locals.
     fn add_local(&mut self, name: &str) -> Result<()> {
         if self.locals.len() == u8::MAX as usize {
             Err(self.error(ErrorKind::TooManyLocals))
@@ -66,17 +78,20 @@ impl Parser<'_> {
         }
     }
 
+    /// Constructs an error of the given kind at the current position.
     // TODO: rename to error_here
     fn error(&self, kind: ErrorKind) -> Error {
         let pos = self.input.pos();
         self.error_at(kind, pos)
     }
 
+    /// Constructs an error of the given kind and position.
     fn error_at(&self, kind: ErrorKind, pos: usize) -> Error {
         let (line, column) = self.input.line_and_column(pos);
         Error::new(kind, line, column)
     }
 
+    /// Constructs an error for when a specific `TokenType` was expected but not found.
     fn err_unexpected(&self, token: Token, _expected: TokenType) -> Error {
         let error_kind = if token.typ == TokenType::EndOfFile {
             ErrorKind::UnexpectedEof
@@ -86,8 +101,8 @@ impl Parser<'_> {
         self.error_at(error_kind, token.start)
     }
 
-    /// Pulls a token off the input and checks it against `tok`. If it doesn't
-    /// match, it returns an `Err`.
+    /// Pulls a token off the input and checks it against `expected`.
+    /// Returns the token if it matches, `Err` otherwise.
     fn expect(&mut self, expected: TokenType) -> Result<Token> {
         let token = self.input.next()?;
         if token.typ == expected {
@@ -97,39 +112,41 @@ impl Parser<'_> {
         }
     }
 
-    /// Expect an identifier token and get the actual identifier from the text.
-    fn expect_identifier(&mut self) -> Result<String> {
+    /// Expects an identifier token and returns the identifier as a string.
+    fn expect_identifier(&mut self) -> Result<&'a str> {
         let token = self.expect(TokenType::Identifier)?;
         let name = self.get_text(token);
-        Ok(name.to_string())
+        Ok(name)
     }
 
-    fn find_or_add_string(&mut self, string: String) -> Result<u8> {
-        // TODO: Make this work using &str without always creating a new String.
+    /// Stores a literal string and returns its index.
+    fn find_or_add_string(&mut self, string: &str) -> Result<u8> {
         find_or_add(&mut self.chunk.string_literals, string)
             .ok_or_else(|| self.error(ErrorKind::TooManyStrings))
     }
 
+    /// Stores a literal number and returns its index.
     fn find_or_add_number(&mut self, num: f64) -> Result<u8> {
-        find_or_add(&mut self.chunk.number_literals, num)
+        find_or_add(&mut self.chunk.number_literals, &num)
             .ok_or_else(|| self.error(ErrorKind::TooManyNumbers))
     }
 
     /// Converts a literal string's offsets into a real String.
-    fn get_literal_string_contents(&self, tok: Token) -> String {
+    fn get_literal_string_contents(&self, tok: Token) -> &'a str {
         // Chop off the quotes
         let Token { start, len, typ } = tok;
         assert_eq!(typ, TokenType::LiteralString);
         assert!(len >= 2);
         let range = (start + 1)..(start + len as usize - 1);
-        self.input.from_src(range).to_string()
+        self.input.from_src(range)
     }
 
-    fn get_text(&self, token: Token) -> String {
-        self.input.from_src(token.range()).to_string()
+    /// Gets the original source code contained by a token.
+    fn get_text(&self, token: Token) -> &'a str {
+        self.input.from_src(token.range())
     }
 
-    /// Lower the nesting level by one, discarding any locals from that block.
+    /// Lowers the nesting level by one, discarding any locals from that block.
     fn level_down(&mut self) {
         while let Some((_, lvl)) = self.locals.last() {
             if *lvl == self.nest_level {
@@ -148,6 +165,7 @@ impl Parser<'_> {
 
     // Actual parsing
 
+    /// The main entry point for the parser. This parses the entire input.
     fn parse_all(mut self) -> Result<Chunk> {
         let c = self.parse_chunk();
         let token = self.input.next()?;
@@ -158,6 +176,7 @@ impl Parser<'_> {
         }
     }
 
+    /// Parses a `Chunk`.
     fn parse_chunk(&mut self) -> Result<Chunk> {
         {
             let mut c = Chunk::default();
@@ -177,6 +196,7 @@ impl Parser<'_> {
         Ok(c)
     }
 
+    /// Parses 0 or more statements, possibly separated by semicolons.
     fn parse_statements(&mut self) -> Result<()> {
         loop {
             match self.input.peek_type()? {
@@ -195,6 +215,7 @@ impl Parser<'_> {
         }
     }
 
+    /// Parses a statement which could be a variable assignment or a function call.
     fn parse_assign_or_call(&mut self) -> Result<()> {
         match self.parse_prefix_exp()? {
             PrefixExp::Parenthesized => {
@@ -209,6 +230,7 @@ impl Parser<'_> {
         }
     }
 
+    /// Parses a variable assignment.
     fn parse_assign(&mut self, first_exp: PlaceExp) -> Result<()> {
         let mut places = vec![first_exp];
         while self.input.try_pop(TokenType::Comma)?.is_some() {
@@ -235,7 +257,7 @@ impl Parser<'_> {
             let instr = match place_exp {
                 PlaceExp::Local(i) => Instr::SetLocal(i),
                 PlaceExp::Global(i) => Instr::SetGlobal(i),
-                PlaceExp::FieldAssign(literal_id) => {
+                PlaceExp::FieldAccess(literal_id) => {
                     let stack_offset = num_lvals as u8 - i as u8 - 1;
                     Instr::SetField(stack_offset, literal_id)
                 }
@@ -250,7 +272,7 @@ impl Parser<'_> {
         Ok(())
     }
 
-    /// Parse an expression which can appear on the left side of an assignment.
+    /// Parses an expression which can appear on the left side of an assignment.
     fn parse_place_exp(&mut self) -> Result<PlaceExp> {
         match self.parse_prefix_exp()? {
             PrefixExp::Parenthesized | PrefixExp::FunctionCall(_) => {
@@ -261,7 +283,7 @@ impl Parser<'_> {
         }
     }
 
-    /// Emit code to evaluate the prefix expression as a normal expression.
+    /// Emits code to evaluate the prefix expression as a normal expression.
     fn eval_prefix_exp(&mut self, exp: PrefixExp) {
         match exp {
             PrefixExp::FunctionCall(num_args) => {
@@ -272,7 +294,7 @@ impl Parser<'_> {
                 let instr = match place {
                     PlaceExp::Local(i) => Instr::GetLocal(i),
                     PlaceExp::Global(i) => Instr::GetGlobal(i),
-                    PlaceExp::FieldAssign(i) => Instr::GetField(i),
+                    PlaceExp::FieldAccess(i) => Instr::GetField(i),
                     PlaceExp::TableIndex => Instr::GetTable,
                 };
                 self.push(instr);
@@ -280,9 +302,9 @@ impl Parser<'_> {
         }
     }
 
-    /// Parse a variable's name. This should only ever return `Local` or `Global`.
-    fn parse_prefix_identifier(&mut self, name: String) -> Result<PrefixExp> {
-        match find_last_local(&self.locals, &name) {
+    /// Parses a variable's name. This should only ever return `Local` or `Global`.
+    fn parse_prefix_identifier(&mut self, name: &str) -> Result<PrefixExp> {
+        match find_last_local(&self.locals, name) {
             Some(i) => Ok(PrefixExp::Place(PlaceExp::Local(i as u8))),
             None => {
                 let i = self.find_or_add_string(name)?;
@@ -291,13 +313,13 @@ impl Parser<'_> {
         }
     }
 
-    /// Parse a `local` declaration.
+    /// Parses a `local` declaration.
     fn parse_locals(&mut self) -> Result<()> {
         self.input.next()?; // `local` keyword
         let start = self.locals.len() as u8;
 
         let name1 = self.expect_identifier()?;
-        self.add_local(&name1)?;
+        self.add_local(name1)?;
         let mut num_names = 1;
 
         while self.input.try_pop(TokenType::Comma)?.is_some() {
@@ -336,7 +358,7 @@ impl Parser<'_> {
         Ok(())
     }
 
-    /// Parse a for loop, before we know whether it's generic (`for i in t do`) or
+    /// Parses a `for` loop, before we know whether it's generic (`for i in t do`) or
     /// numeric (`for i = 1,5 do`).
     fn parse_for(&mut self) -> Result<()> {
         self.input.next()?; // `for` keyword
@@ -349,7 +371,7 @@ impl Parser<'_> {
         Ok(())
     }
 
-    /// Parse a numeric for, starting with the first expression after the `=`.
+    /// Parses a numeric `for` loop, starting with the first expression after the `=`.
     fn parse_numeric_for(&mut self, name: &str) -> Result<()> {
         // The start(current), stop and step are stored in three "hidden" local slots.
         let current_local_slot = self.locals.len() as u8;
@@ -385,7 +407,7 @@ impl Parser<'_> {
         Ok(())
     }
 
-    /// Parse the optional step value of a numeric for loop.
+    /// Parses the optional step value of a numeric `for` loop.
     fn parse_numeric_for_step(&mut self) -> Result<()> {
         let next_token = self.input.next()?;
         match next_token.typ {
@@ -403,6 +425,7 @@ impl Parser<'_> {
         }
     }
 
+    /// Parses a `do ... end` statement.
     fn parse_do(&mut self) -> Result<()> {
         self.input.next()?; // `do` keyword
         self.nest_level += 1;
@@ -412,6 +435,7 @@ impl Parser<'_> {
         Ok(())
     }
 
+    /// Parses a `repeat ... until` statement.
     fn parse_repeat(&mut self) -> Result<()> {
         self.input.next()?; // `repeat` keyword
         self.nest_level += 1;
@@ -425,6 +449,7 @@ impl Parser<'_> {
         Ok(())
     }
 
+    /// Parses a `while ... do ... end` statement.
     fn parse_while(&mut self) -> Result<()> {
         self.input.next()?; // `while` keyword
         self.nest_level += 1;
@@ -447,11 +472,12 @@ impl Parser<'_> {
         Ok(())
     }
 
+    /// Parses an if-then statement, including any attached `else` or `elseif` branches.
     fn parse_if(&mut self) -> Result<()> {
         self.parse_if_arm()
     }
 
-    /// Parse an `if` or `elseif` block and any subsequent `elseif` or `else`
+    /// Parses an `if` or `elseif` block and any subsequent `elseif` or `else`
     /// blocks in the same chain.
     fn parse_if_arm(&mut self) -> Result<()> {
         self.input.next()?; // `if` or `elseif` keyword
@@ -477,7 +503,7 @@ impl Parser<'_> {
         Ok(())
     }
 
-    /// Parse the closing keyword of an `if` or `elseif` arms, and any arms
+    /// Parses the closing keyword of an `if` or `elseif` arms, and any arms
     /// that may follow.
     fn close_if_arm(&mut self) -> Result<()> {
         self.level_down();
@@ -491,8 +517,8 @@ impl Parser<'_> {
         }
     }
 
-    /// Parse an `elseif` or `else` block, and handle the Jump instruction for
-    /// then end of the preceding block.
+    /// Parses an `elseif` or `else` block, and handles the `Jump` instruction
+    /// for the end of the preceding block.
     fn parse_else_or_elseif(&mut self, elseif: bool) -> Result<()> {
         let jump_instr_index = self.chunk.code.len();
         self.push(Instr::Jump(0));
@@ -507,6 +533,7 @@ impl Parser<'_> {
         Ok(())
     }
 
+    /// Parses an `else` block.
     fn parse_else(&mut self) -> Result<()> {
         self.nest_level += 1;
         self.input.next()?; // `else` keyword
@@ -516,8 +543,8 @@ impl Parser<'_> {
         Ok(())
     }
 
-    /// Parse a comma-separated list of expressions. Trailing and leading
-    /// commas are not allowed. Return how many expressions were parsed.
+    /// Parses a comma-separated list of expressions. Trailing and leading
+    /// commas are not allowed. Returns how many expressions were parsed.
     fn parse_explist(&mut self) -> Result<u8> {
         // An explist has to have at least one expression.
         self.parse_expr()?;
@@ -533,12 +560,12 @@ impl Parser<'_> {
         Ok(output)
     }
 
-    /// Parse the input as a single expression.
+    /// Parses a single expression.
     fn parse_expr(&mut self) -> Result<()> {
         self.parse_or()
     }
 
-    /// Attempt to parse an 'or' expression. Precedence 8.
+    /// Parses an `or` expression. Precedence 8.
     fn parse_or(&mut self) -> Result<()> {
         self.parse_and()?;
 
@@ -555,7 +582,7 @@ impl Parser<'_> {
         Ok(())
     }
 
-    /// Attempt to parse an 'and' expression. Precedence 7.
+    /// Parses `and` expression. Precedence 7.
     fn parse_and(&mut self) -> Result<()> {
         self.parse_comparison()?;
 
@@ -572,7 +599,7 @@ impl Parser<'_> {
         Ok(())
     }
 
-    /// Parse a comparison expression. Precedence 6.
+    /// Parses a comparison expression. Precedence 6.
     ///
     /// `==`, `~=`, `<`, `<=`, `>`, `>=`
     fn parse_comparison(&mut self) -> Result<()> {
@@ -594,9 +621,7 @@ impl Parser<'_> {
         Ok(())
     }
 
-    /// Parse a string concatenation expression. Precedence 5.
-    ///
-    /// `..`
+    /// Parses a string concatenation expression (`..`). Precedence 5.
     fn parse_concat(&mut self) -> Result<()> {
         self.parse_addition()?;
         if self.input.try_pop(TokenType::DotDot)?.is_some() {
@@ -607,9 +632,7 @@ impl Parser<'_> {
         Ok(())
     }
 
-    /// Parse an addition expression. Precedence 4.
-    ///
-    /// `+`, `-`
+    /// Parses an addition expression (`+`, `-`). Precedence 4.
     fn parse_addition(&mut self) -> Result<()> {
         self.parse_multiplication()?;
         loop {
@@ -625,9 +648,7 @@ impl Parser<'_> {
         Ok(())
     }
 
-    /// Parse a multiplication expression. Precedence 3.
-    ///
-    /// `*`, `/`, `%`
+    /// Parses a multiplication expression (`*`, `/`, `%`). Precedence 3.
     fn parse_multiplication(&mut self) -> Result<()> {
         self.parse_unary()?;
         loop {
@@ -644,10 +665,7 @@ impl Parser<'_> {
         Ok(())
     }
 
-    /// Parse a unary expression. Precedence 2. Note the `^` operator has a
-    /// higher precedence than unary operators.
-    ///
-    /// `not`, `#`, `-`
+    /// Parses a unary expression (`not`, `#`, `-`). Precedence 2.
     fn parse_unary(&mut self) -> Result<()> {
         let instr = match self.input.peek_type()? {
             TokenType::Not => Instr::Not,
@@ -664,9 +682,7 @@ impl Parser<'_> {
         Ok(())
     }
 
-    /// Parse an exponentiation expression. Right-associative, Precedence 1.
-    ///
-    /// `^`
+    /// Parse an exponentiation expression (`^`). Right-associative, Precedence 1.
     fn parse_pow(&mut self) -> Result<()> {
         self.parse_primary()?;
         if self.input.try_pop(TokenType::Caret)?.is_some() {
@@ -677,6 +693,7 @@ impl Parser<'_> {
         Ok(())
     }
 
+    /// Parses a 'primary' expression. See `parse_prefix_exp` and `parse_expr_base` for details.
     fn parse_primary(&mut self) -> Result<()> {
         match self.input.peek_type()? {
             TokenType::Identifier | TokenType::LParen => {
@@ -688,7 +705,7 @@ impl Parser<'_> {
         }
     }
 
-    /// Parse a `prefix expression`. Prefix expressions are the expressions
+    /// Parses a `prefix expression`. Prefix expressions are the expressions
     /// which can appear on the left side of a function call, table index, or
     /// field access.
     fn parse_prefix_exp(&mut self) -> Result<PrefixExp> {
@@ -710,16 +727,16 @@ impl Parser<'_> {
         self.parse_prefix_extension(prefix)
     }
 
-    /// Any prefix expression can be followed by an indexing operation or a
-    /// function/method call.
+    /// Attempts to parse an extension to a prefix expression: a field access,
+    /// table index, or function/method call.
     fn parse_prefix_extension(&mut self, base_expr: PrefixExp) -> Result<PrefixExp> {
         match self.input.peek_type()? {
             TokenType::Dot => {
                 self.eval_prefix_exp(base_expr);
                 self.input.next()?;
                 let name = self.expect_identifier()?;
-                let i = self.find_or_add_string(name)?;
-                let prefix = PrefixExp::Place(PlaceExp::FieldAssign(i));
+                let i = self.find_or_add_string(&name)?;
+                let prefix = PrefixExp::Place(PlaceExp::FieldAccess(i));
                 self.parse_prefix_extension(prefix)
             }
             TokenType::LSquare => {
@@ -745,7 +762,7 @@ impl Parser<'_> {
         }
     }
 
-    /// Parse a base expression, after eliminating any operators. This can be:
+    /// Parses a 'base' expression, after eliminating any operators. This can be:
     /// * A literal number
     /// * A literal string
     /// * A function definition
@@ -756,22 +773,22 @@ impl Parser<'_> {
         match tok.typ {
             TokenType::LCurly => self.parse_table()?,
             TokenType::LiteralNumber => {
-                let s = self.get_text(tok);
-                let n = s.parse::<f64>().unwrap();
-                let i = self.find_or_add_number(n)?;
-                self.push(Instr::PushNum(i));
+                let text = self.get_text(tok);
+                let number = text.parse::<f64>().unwrap();
+                let idx = self.find_or_add_number(number)?;
+                self.push(Instr::PushNum(idx));
             }
             TokenType::LiteralHexNumber => {
                 // Cut off the "0x"
-                let s = &self.get_text(tok)[2..];
-                let n = u128::from_str_radix(s, 16).unwrap() as f64;
-                let i = self.find_or_add_number(n)?;
-                self.push(Instr::PushNum(i));
+                let text = &self.get_text(tok)[2..];
+                let number = u128::from_str_radix(text, 16).unwrap() as f64;
+                let idx = self.find_or_add_number(number)?;
+                self.push(Instr::PushNum(idx));
             }
             TokenType::LiteralString => {
-                let s = self.get_literal_string_contents(tok);
-                let i = self.find_or_add_string(s)?;
-                self.push(Instr::PushString(i));
+                let text = self.get_literal_string_contents(tok);
+                let idx = self.find_or_add_string(text)?;
+                self.push(Instr::PushString(idx));
             }
             TokenType::Function => {
                 self.expect(TokenType::LParen)?;
@@ -792,11 +809,15 @@ impl Parser<'_> {
         Ok(())
     }
 
+    /// Parses the parameters in a function definition.
     fn parse_args(&mut self) -> Result<Vec<String>> {
         // TODO: actually parse args
+        let typ = self.input.peek_type()?;
+        assert_eq!(typ, TokenType::RParen, "Can't handle function args yet.");
         Ok(Vec::new())
     }
 
+    /// Parses the body of a function definition.
     fn parse_fndef(&mut self, args: Vec<String>) -> Result<()> {
         if self.chunk.nested.len() >= u8::MAX as usize {
             return Err(self.error(ErrorKind::Complexity));
@@ -811,6 +832,7 @@ impl Parser<'_> {
         Ok(())
     }
 
+    /// Parses a table constructor.
     fn parse_table(&mut self) -> Result<()> {
         self.push(Instr::NewTable);
         if self.input.try_pop(TokenType::RCurly)?.is_none() {
@@ -828,7 +850,7 @@ impl Parser<'_> {
         Ok(())
     }
 
-    /// Parse a potential table entry
+    /// Parses a potential table entry.
     fn parse_table_entry(&mut self) -> Result<()> {
         let tok = self.input.next()?;
         match tok.typ {
@@ -845,6 +867,7 @@ impl Parser<'_> {
         Ok(())
     }
 
+    /// Parses a function call. Returns the number of arguments.
     fn parse_call(&mut self) -> Result<u8> {
         let num_args = if self.input.check_type(TokenType::RParen)? {
             0
@@ -856,6 +879,7 @@ impl Parser<'_> {
     }
 }
 
+/// Finds the index of the last local entry which matches `name`.
 fn find_last_local(locals: &[(String, i32)], name: &str) -> Option<usize> {
     let mut i = locals.len();
     while i > 0 {
@@ -869,18 +893,19 @@ fn find_last_local(locals: &[(String, i32)], name: &str) -> Option<usize> {
 }
 
 /// Returns the index of a number in the literals list, adding it if it does not exist.
-fn find_or_add<T>(queue: &mut Vec<T>, x: T) -> Option<u8>
+fn find_or_add<T, E>(queue: &mut Vec<T>, x: &E) -> Option<u8>
 where
-    T: PartialEq,
+    T: Borrow<E> + PartialEq<E>,
+    E: PartialEq<T> + ToOwned<Owned = T> + ?Sized,
 {
-    match queue.iter().position(|y| *y == x) {
+    match queue.iter().position(|y| y == x) {
         Some(i) => Some(i as u8),
         None => {
             let i = queue.len();
             if i == u8::MAX as usize {
                 None
             } else {
-                queue.push(x);
+                queue.push(x.to_owned());
                 Some(i as u8)
             }
         }

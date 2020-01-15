@@ -30,6 +30,7 @@ pub(super) struct Lexer<'a> {
 }
 
 impl<'a> TokenStream<'a> {
+    /// Constructs a new `TokenStream`.
     pub(super) fn new(source: &'a str) -> Self {
         TokenStream {
             lexer: Lexer::new(source),
@@ -37,7 +38,7 @@ impl<'a> TokenStream<'a> {
         }
     }
 
-    /// Return the next Token.
+    /// Returns the next `Token`.
     pub(super) fn next(&mut self) -> Result<Token> {
         match self.lookahead.take() {
             Some(token) => Ok(token),
@@ -45,6 +46,7 @@ impl<'a> TokenStream<'a> {
         }
     }
 
+    /// Returns the next `Token`, without popping it from the stream.
     pub(super) fn peek(&mut self) -> Result<&Token> {
         if self.lookahead.is_none() {
             self.lookahead = Some(self.lexer.next_token()?);
@@ -52,18 +54,18 @@ impl<'a> TokenStream<'a> {
         Ok(self.lookahead.as_ref().unwrap())
     }
 
-    /// Return the type of the next token without popping it.
+    /// Returns the type of the next token.
     pub(super) fn peek_type(&mut self) -> Result<TokenType> {
         Ok(self.peek()?.typ)
     }
 
-    //pub(super) fn peek_type_is(&mut self, expected_type: TokenType) -> Result<bool> {
+    /// Returns whether the next token is of the given type.
     pub(super) fn check_type(&mut self, expected_type: TokenType) -> Result<bool> {
         Ok(self.peek_type()? == expected_type)
     }
 
-    /// Checks the next token's type. If it matches `typ`, it is popped off and
-    /// returned as `Some`. Else, we return `None`.
+    /// Checks the next token's type. If it matches `expected_type`, it is popped off and
+    /// returned as `Some`. Otherwise, returns `None`.
     pub(super) fn try_pop(&mut self, expected_type: TokenType) -> Result<Option<Token>> {
         if self.check_type(expected_type)? {
             Ok(Some(self.next().unwrap()))
@@ -72,10 +74,12 @@ impl<'a> TokenStream<'a> {
         }
     }
 
+    /// Returns the current position of the `TokenStream`.
     pub(super) fn line_and_column(&self, pos: usize) -> (usize, usize) {
         self.lexer.line_and_col(pos)
     }
 
+    /// Returns how many bytes have been read.
     pub(super) fn pos(&self) -> usize {
         match &self.lookahead {
             Some(token) => token.start,
@@ -83,13 +87,15 @@ impl<'a> TokenStream<'a> {
         }
     }
 
-    pub(super) fn from_src(&self, index: impl SliceIndex<str, Output = str>) -> &str {
+    /// Returns a substring from the source code.
+    pub(super) fn from_src(&self, index: impl SliceIndex<str, Output = str>) -> &'a str {
         &self.lexer.source[index]
     }
 }
 
-impl<'a> Lexer<'a> {
-    pub(super) fn new(source: &'a str) -> Self {
+impl Lexer<'_> {
+    /// Constructs a new `Lexer`.
+    pub(super) fn new(source: &str) -> Lexer<'_> {
         let linebreaks = vec![0];
         Lexer {
             iter: source.char_indices().peekable(),
@@ -99,6 +105,7 @@ impl<'a> Lexer<'a> {
         }
     }
 
+    /// Returns the next `Token`.
     pub(super) fn next_token(&mut self) -> Result<Token> {
         let _starts_line = self.consume_whitespace();
         let tok_start = self.pos;
@@ -149,13 +156,19 @@ impl<'a> Lexer<'a> {
 
                 _ => unimplemented!(),
             };
-            let len = self.pos - tok_start;
-            Ok(Token::new(tok_type, tok_start, len as u32))
+            let len = (self.pos - tok_start) as u32;
+            let token = Token {
+                typ: tok_type,
+                start: tok_start,
+                len,
+            };
+            Ok(token)
         } else {
-            Ok(Token::new(TokenType::EndOfFile, self.pos, 0))
+            Ok(self.end_of_file())
         }
     }
 
+    /// Skips over the characters in a comment.
     fn comment(&mut self) -> Result<Token> {
         // TODO multi-line comments
         while let Some(c) = self.next_char() {
@@ -163,13 +176,15 @@ impl<'a> Lexer<'a> {
                 return self.next_token();
             }
         }
-        Ok(Token::new(TokenType::EndOfFile, self.pos, 0))
+        Ok(self.end_of_file())
     }
 
+    /// Peeks the next character.
     fn peek_char(&mut self) -> Option<char> {
         self.iter.peek().map(|(_, c)| *c)
     }
 
+    /// Pops and returns the next character.
     fn next_char(&mut self) -> Option<char> {
         match self.iter.next() {
             Some((pos, c)) => {
@@ -183,7 +198,7 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    /// Consume any whitespace characters
+    /// Consumes any whitespace characters. Returns whether or not a newline was consumed.
     fn consume_whitespace(&mut self) -> bool {
         let mut ret = false;
         while let Some(c) = self.peek_char() {
@@ -210,16 +225,14 @@ impl<'a> Lexer<'a> {
         }
     }
 
+    /// Constructs an error of the given kind at the current position.
     fn error(&self, kind: ErrorKind) -> Error {
         let (line_num, column) = self.line_and_col(self.pos);
         Error::new(kind, line_num, column)
     }
 
-    /// The lexer just read a `.`. Determine whether it was a:
-    /// - `Dot`: table access
-    /// - `DotDot`: String concatenation
-    /// - `DotDotDot`: Variadic arguments
-    /// - `Number`: if it's the form `.4`, for example\
+    /// The lexer just read a `.`.
+    /// Determines whether it is part of a `Dot`, `DotDot`, `DotDotDot` or `Number`.
     fn peek_dot(&mut self, tok_start: usize) -> Result<TokenType> {
         let typ = match self.peek_char() {
             Some('.') => {
@@ -243,8 +256,8 @@ impl<'a> Lexer<'a> {
     /// The lexer just read something which might be part of a two-character
     /// operator, with `=` as the second character.
     ///
-    /// Return `Err` if the first character is `~` and it is not paired with a
-    /// `=`
+    /// Returns `Err` if the first character is `~` and it is not paired with a
+    /// `=`.
     fn peek_equals(&mut self, _tok_start: usize, first_char: char) -> Result<TokenType> {
         if self.try_next('=') {
             let typ = match first_char {
@@ -266,7 +279,7 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    /// Tokenize a 'short' literal string, AKA a string denoted by single or
+    /// Tokenizes a 'short' literal string, AKA a string denoted by single or
     /// double quotes and not by two square brackets.
     fn lex_string(&mut self, is_single_quotes: bool, _tok_start: usize) -> Result<TokenType> {
         while let Some(c) = self.next_char() {
@@ -285,8 +298,7 @@ impl<'a> Lexer<'a> {
         Err(self.error(ErrorKind::UnclosedString))
     }
 
-    /// Read in a number which starts with a digit (as opposed to a decimal
-    /// point).
+    /// Reads in a number which starts with a digit (as opposed to a decimal point).
     fn lex_full_number(&mut self, tok_start: usize, first_char: char) -> Result<TokenType> {
         // Check for hex values
         if first_char == '0' && self.try_next('x') {
@@ -326,13 +338,13 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    /// Read in a literal number which had no digits before the decimal point.
+    /// Reads in a literal number which starts with a decimal point.
     fn lex_number_after_decimal(&mut self, tok_start: usize) -> Result<()> {
         self.lex_digits();
         self.lex_exponent(tok_start)
     }
 
-    /// Read in an unbroken sequence of digits.
+    /// Consumes an unbroken sequence of digits.
     fn lex_digits(&mut self) {
         while let Some(c) = self.peek_char() {
             if c.is_ascii_digit() {
@@ -343,7 +355,7 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    /// Read in the optional exponent part of a literal number. Then, check
+    /// Consumes the optional exponent part of a literal number, then checks
     /// for any trailing letters.
     fn lex_exponent(&mut self, _tok_start: usize) -> Result<()> {
         if self.try_next('E') || self.try_next('e') {
@@ -362,6 +374,7 @@ impl<'a> Lexer<'a> {
         }
     }
 
+    /// Reads a word and returns it as an identifier or keyword.
     fn lex_word(&mut self, first_char: char) -> TokenType {
         let mut word = String::new();
         word.push(first_char);
@@ -377,6 +390,7 @@ impl<'a> Lexer<'a> {
         keyword_match(&word)
     }
 
+    /// Returns the current position of the `Lexer`.
     fn line_and_col(&self, pos: usize) -> (usize, usize) {
         let iter = self.linebreaks.windows(2).enumerate();
         for (line_num, linebreak_pair) in iter {
@@ -390,8 +404,17 @@ impl<'a> Lexer<'a> {
         let column = pos - self.linebreaks.last().unwrap();
         (line_num + 1, column + 1)
     }
+
+    fn end_of_file(&self) -> Token {
+        Token {
+            typ: TokenType::EndOfFile,
+            start: self.pos,
+            len: 0,
+        }
+    }
 }
 
+/// Checks if a word is a keyword, then returns the appropriate `TokenType`.
 fn keyword_match(s: &str) -> TokenType {
     match s {
         "and" => And,
@@ -427,7 +450,7 @@ mod tests {
         let mut lexer = Lexer::new(input);
         let mut tokens = tokens
             .iter()
-            .map(|(typ, start, len)| Token::new(*typ, *start, *len));
+            .map(|&(typ, start, len)| Token { typ, start, len });
         loop {
             let actual = lexer.next_token().unwrap();
             if actual.typ == TokenType::EndOfFile {
