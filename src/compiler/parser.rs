@@ -19,7 +19,6 @@ struct Parser<'a> {
     /// The input token stream.
     input: TokenStream<'a>,
     chunk: Chunk,
-    other_chunks: Vec<Chunk>,
     nest_level: i32,
     locals: Vec<(String, i32)>,
 }
@@ -54,7 +53,6 @@ pub(super) fn parse_str(source: &str) -> Result<Chunk> {
     let parser = Parser {
         input: TokenStream::new(source),
         chunk: Chunk::default(),
-        other_chunks: Vec::new(),
         nest_level: 0,
         locals: Vec::new(),
     };
@@ -178,22 +176,19 @@ impl<'a> Parser<'a> {
 
     /// Parses a `Chunk`.
     fn parse_chunk(&mut self) -> Result<Chunk> {
-        {
-            let mut c = Chunk::default();
-            swap(&mut c, &mut self.chunk);
-            self.other_chunks.push(c);
-        }
+        let mut tmp_chunk = Chunk::default();
+        swap(&mut tmp_chunk, &mut self.chunk);
+
         self.parse_statements()?;
         self.push(Instr::Return);
 
-        let mut c = self.other_chunks.pop().unwrap();
-        swap(&mut c, &mut self.chunk);
+        swap(&mut tmp_chunk, &mut self.chunk);
 
         if option_env!("LUA_DEBUG_PARSER").is_some() {
-            println!("Compiled chunk: {:#?}", &c);
+            println!("Compiled chunk: {:#?}", &tmp_chunk);
         }
 
-        Ok(c)
+        Ok(tmp_chunk)
     }
 
     /// Parses 0 or more statements, possibly separated by semicolons.
