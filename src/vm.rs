@@ -151,9 +151,7 @@ impl State {
     /// for this function is for `reader` to query the user for a line of input.
     pub fn load(&mut self, reader: &mut impl io::Read) -> Result<()> {
         let mut buffer = String::new();
-        reader
-            .read_to_string(&mut buffer)
-            .map_err(Error::from_io_error)?;
+        reader.read_to_string(&mut buffer)?;
         compiler::parse_str(&buffer).map(|chunk| {
             self.push_chunk(chunk);
         })
@@ -164,7 +162,7 @@ impl State {
     ///
     /// This function only loads the chunk; it does not run it.
     pub fn load_file(&mut self, filename: impl AsRef<Path>) -> Result<()> {
-        let mut reader = fs::File::open(filename).map_err(Error::from_io_error)?;
+        let mut reader = fs::File::open(filename)?;
         self.load(&mut reader)
     }
 

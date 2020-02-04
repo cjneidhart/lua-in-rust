@@ -2,7 +2,6 @@ use std::env::args;
 use std::io;
 use std::process::exit;
 
-use lua::Error;
 use lua::State;
 
 fn main() {
@@ -60,7 +59,7 @@ fn read_stdin(state: &mut State) -> lua::Result<usize> {
         }
         let _ = io::Write::flush(&mut stdout);
 
-        total_bytes_read += stdin.read_line(&mut buffer).map_err(Error::from_io_error)?;
+        total_bytes_read += stdin.read_line(&mut buffer)?;
         if total_bytes_read == 0 {
             return Ok(0);
         }

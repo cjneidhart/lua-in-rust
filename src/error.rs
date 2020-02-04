@@ -74,11 +74,6 @@ impl Error {
         Error::new(kind, 0, 0)
     }
 
-    pub fn from_io_error(io_error: io::Error) -> Self {
-        let kind = ErrorKind::Io(io_error);
-        Error::without_location(kind)
-    }
-
     pub fn column(&self) -> usize {
         self.column
     }
@@ -95,5 +90,11 @@ impl Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "error {}:{}: {}", self.line_num, self.column, self.kind)
+    }
+}
+
+impl From<io::Error> for Error {
+    fn from(io_err: io::Error) -> Self {
+        Error::without_location(ErrorKind::Io(io_err))
     }
 }
