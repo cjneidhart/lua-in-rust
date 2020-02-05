@@ -180,7 +180,7 @@ impl<'a> Parser<'a> {
         swap(&mut tmp_chunk, &mut self.chunk);
 
         self.parse_statements()?;
-        self.push(Instr::Return);
+        self.push(Instr::Return(0));
 
         swap(&mut tmp_chunk, &mut self.chunk);
 
@@ -205,9 +205,20 @@ impl<'a> Parser<'a> {
                 TokenType::Semi => {
                     self.input.next()?;
                 }
+                TokenType::Return => break self.parse_return(),
                 _ => break Ok(()),
             }
         }
+    }
+
+    /// Parses a return statement. Return statements must always come last in a
+    /// block.
+    fn parse_return(&mut self) -> Result<()> {
+        self.input.next()?; // 'return' keyword
+        let n = self.parse_explist()?;
+        self.push(Instr::Return(n));
+        self.input.try_pop(TokenType::Semi)?;
+        Ok(())
     }
 
     /// Parses a statement which could be a variable assignment or a function call.
@@ -921,7 +932,7 @@ mod tests {
     fn test01() {
         let text = "x = 5 + 6";
         let out = Chunk {
-            code: vec![PushNum(0), PushNum(1), Add, SetGlobal(0), Return],
+            code: vec![PushNum(0), PushNum(1), Add, SetGlobal(0), Return(0)],
             number_literals: vec![5.0, 6.0],
             string_literals: vec!["x".into()],
             num_locals: 0,
@@ -934,7 +945,7 @@ mod tests {
     fn test02() {
         let text = "x = -5^2";
         let out = Chunk {
-            code: vec![PushNum(0), PushNum(1), Pow, Negate, SetGlobal(0), Return],
+            code: vec![PushNum(0), PushNum(1), Pow, Negate, SetGlobal(0), Return(0)],
             number_literals: vec![5.0, 2.0],
             string_literals: vec!["x".into()],
             num_locals: 0,
@@ -954,7 +965,7 @@ mod tests {
                 PushString(1),
                 Concat,
                 SetGlobal(0),
-                Return,
+                Return(0),
             ],
             number_literals: vec![5.0],
             string_literals: vec!["x".into(), "hi".into()],
@@ -975,7 +986,7 @@ mod tests {
                 Add,
                 Concat,
                 SetGlobal(0),
-                Return,
+                Return(0),
             ],
             number_literals: vec![1.0, 2.0, 3.0],
             string_literals: vec!["x".into()],
@@ -989,7 +1000,7 @@ mod tests {
     fn test05() {
         let text = "x = 2^-3";
         let output = Chunk {
-            code: vec![PushNum(0), PushNum(1), Negate, Pow, SetGlobal(0), Return],
+            code: vec![PushNum(0), PushNum(1), Negate, Pow, SetGlobal(0), Return(0)],
             number_literals: vec![2.0, 3.0],
             string_literals: vec!["x".into()],
             nested: vec![],
@@ -1002,7 +1013,7 @@ mod tests {
     fn test06() {
         let text = "x=  not not 1";
         let output = Chunk {
-            code: vec![PushNum(0), Instr::Not, Instr::Not, SetGlobal(0), Return],
+            code: vec![PushNum(0), Instr::Not, Instr::Not, SetGlobal(0), Return(0)],
             number_literals: vec![1.0],
             string_literals: vec!["x".into()],
             nested: vec![],
@@ -1015,7 +1026,7 @@ mod tests {
     fn test07() {
         let text = "a = 5";
         let output = Chunk {
-            code: vec![PushNum(0), SetGlobal(0), Return],
+            code: vec![PushNum(0), SetGlobal(0), Return(0)],
             number_literals: vec![5.0],
             string_literals: vec!["a".to_string()],
             nested: vec![],
@@ -1034,7 +1045,7 @@ mod tests {
                 Pop,
                 PushBool(false),
                 SetGlobal(0),
-                Return,
+                Return(0),
             ],
             number_literals: vec![],
             string_literals: vec!["x".into()],
@@ -1056,7 +1067,7 @@ mod tests {
             Pop,
             PushBool(true),
             SetGlobal(0),
-            Return,
+            Return(0),
         ];
         let output = Chunk {
             code,
@@ -1076,7 +1087,7 @@ mod tests {
             BranchFalse(2),
             PushNum(0),
             SetGlobal(0),
-            Return,
+            Return(0),
         ];
         let chunk = Chunk {
             code,
@@ -1100,7 +1111,7 @@ mod tests {
             BranchFalse(2),
             PushNum(1),
             SetGlobal(1),
-            Return,
+            Return(0),
         ];
         let chunk = Chunk {
             code,
@@ -1123,7 +1134,7 @@ mod tests {
             Jump(2),
             PushNum(1),
             SetGlobal(0),
-            Return,
+            Return(0),
         ];
         let chunk = Chunk {
             code,
@@ -1153,7 +1164,7 @@ mod tests {
             Jump(2),
             PushNum(4),
             SetGlobal(0),
-            Return,
+            Return(0),
         ];
         let chunk = Chunk {
             code,
@@ -1178,7 +1189,7 @@ mod tests {
             Add,
             SetGlobal(0),
             Jump(-9),
-            Return,
+            Return(0),
         ];
         let chunk = Chunk {
             code,
@@ -1202,7 +1213,7 @@ mod tests {
             BranchFalse(-6),
             PushNum(1),
             SetGlobal(2),
-            Return,
+            Return(0),
         ];
         let chunk = Chunk {
             code,
@@ -1217,7 +1228,7 @@ mod tests {
     #[test]
     fn test16() {
         let text = "local i i = 2";
-        let code = vec![PushNil, SetLocal(0), PushNum(0), SetLocal(0), Return];
+        let code = vec![PushNil, SetLocal(0), PushNum(0), SetLocal(0), Return(0)];
         let chunk = Chunk {
             code,
             number_literals: vec![2.0],
@@ -1239,7 +1250,7 @@ mod tests {
             GetGlobal(0),
             GetLocal(1),
             Call(1, 0),
-            Return,
+            Return(0),
         ];
         let chunk = Chunk {
             code,
@@ -1263,7 +1274,7 @@ mod tests {
             SetGlobal(0),
             GetLocal(0),
             SetGlobal(0),
-            Return,
+            Return(0),
         ];
         let chunk = Chunk {
             code,
@@ -1285,7 +1296,7 @@ mod tests {
             SetGlobal(0),
             GetGlobal(1),
             SetGlobal(0),
-            Return,
+            Return(0),
         ];
         let chunk = Chunk {
             code,
@@ -1310,7 +1321,7 @@ mod tests {
             Jump(2),
             GetLocal(0),
             SetGlobal(0),
-            Return,
+            Return(0),
         ];
         let chunk = Chunk {
             code,
@@ -1333,7 +1344,7 @@ mod tests {
             GetLocal(3),
             SetGlobal(0),
             ForLoop(0, -3),
-            Return,
+            Return(0),
         ];
         let chunk = Chunk {
             code,
@@ -1348,7 +1359,7 @@ mod tests {
     #[test]
     fn test22() {
         let text = "a, b = 1";
-        let code = vec![PushNum(0), PushNil, SetGlobal(1), SetGlobal(0), Return];
+        let code = vec![PushNum(0), PushNil, SetGlobal(1), SetGlobal(0), Return(0)];
         let chunk = Chunk {
             code,
             number_literals: vec![1.0],
@@ -1362,7 +1373,13 @@ mod tests {
     #[test]
     fn test23() {
         let text = "a, b = 1, 2";
-        let code = vec![PushNum(0), PushNum(1), SetGlobal(1), SetGlobal(0), Return];
+        let code = vec![
+            PushNum(0),
+            PushNum(1),
+            SetGlobal(1),
+            SetGlobal(0),
+            Return(0),
+        ];
         let chunk = Chunk {
             code,
             number_literals: vec![1.0, 2.0],
@@ -1383,7 +1400,7 @@ mod tests {
             Pop,
             SetGlobal(1),
             SetGlobal(0),
-            Return,
+            Return(0),
         ];
         let chunk = Chunk {
             code,
@@ -1398,7 +1415,7 @@ mod tests {
     #[test]
     fn test25() {
         let text = "puts()";
-        let code = vec![GetGlobal(0), Call(0, 0), Return];
+        let code = vec![GetGlobal(0), Call(0, 0), Return(0)];
         let chunk = Chunk {
             code,
             number_literals: vec![],
@@ -1412,7 +1429,7 @@ mod tests {
     #[test]
     fn test26() {
         let text = "y = {x = 5,}";
-        let code = vec![NewTable, PushNum(0), InitField(1), SetGlobal(0), Return];
+        let code = vec![NewTable, PushNum(0), InitField(1), SetGlobal(0), Return(0)];
         let chunk = Chunk {
             code,
             number_literals: vec![5.0],
@@ -1426,7 +1443,13 @@ mod tests {
     #[test]
     fn test27() {
         let text = "local x = t.x.y";
-        let code = vec![GetGlobal(0), GetField(1), GetField(2), SetLocal(0), Return];
+        let code = vec![
+            GetGlobal(0),
+            GetField(1),
+            GetField(2),
+            SetLocal(0),
+            Return(0),
+        ];
         let chunk = Chunk {
             code,
             number_literals: vec![],
@@ -1440,10 +1463,10 @@ mod tests {
     #[test]
     fn test28() {
         let text = "x = function () end";
-        let code = vec![Closure(0), SetGlobal(0), Return];
+        let code = vec![Closure(0), SetGlobal(0), Return(0)];
         let string_literals = vec!["x".into()];
         let nested = vec![Chunk {
-            code: vec![Return],
+            code: vec![Return(0)],
             ..Chunk::default()
         }];
         let chunk = Chunk {
@@ -1460,13 +1483,13 @@ mod tests {
         let default = Chunk::default();
         let text = "x = function () local y = 7 end";
         let inner_chunk = Chunk {
-            code: vec![PushNum(0), SetLocal(0), Return],
+            code: vec![PushNum(0), SetLocal(0), Return(0)],
             number_literals: vec![7.0],
             num_locals: 1,
             ..default
         };
         let outer_chunk = Chunk {
-            code: vec![Closure(0), SetGlobal(0), Return],
+            code: vec![Closure(0), SetGlobal(0), Return(0)],
             string_literals: vec!["x".into()],
             nested: vec![inner_chunk],
             ..default
@@ -1483,13 +1506,13 @@ mod tests {
             print(y)
         end";
         let z = Chunk {
-            code: vec![PushNum(0), SetLocal(0), Return],
+            code: vec![PushNum(0), SetLocal(0), Return(0)],
             number_literals: vec![21.0],
             num_locals: 1,
             ..Chunk::default()
         };
         let y = Chunk {
-            code: vec![Return],
+            code: vec![Return(0)],
             ..Chunk::default()
         };
         let x = Chunk {
@@ -1499,7 +1522,7 @@ mod tests {
                 GetGlobal(0),
                 GetLocal(0),
                 Call(1, 0),
-                Return,
+                Return(0),
             ],
             string_literals: vec!["print".into()],
             nested: vec![y],
@@ -1507,7 +1530,13 @@ mod tests {
             ..Chunk::default()
         };
         let outer_chunk = Chunk {
-            code: vec![Closure(0), SetGlobal(0), Closure(1), SetGlobal(1), Return],
+            code: vec![
+                Closure(0),
+                SetGlobal(0),
+                Closure(1),
+                SetGlobal(1),
+                Return(0),
+            ],
             nested: vec![z, x],
             string_literals: vec!["z".into(), "x".into()],
             ..Chunk::default()
@@ -1518,7 +1547,7 @@ mod tests {
     #[test]
     fn test31() {
         let text = "local s = type(4)";
-        let code = vec![GetGlobal(0), PushNum(0), Call(1, 1), SetLocal(0), Return];
+        let code = vec![GetGlobal(0), PushNum(0), Call(1, 1), SetLocal(0), Return(0)];
         let chunk = Chunk {
             code,
             num_locals: 1,
@@ -1542,7 +1571,7 @@ mod tests {
             PushNil,
             Call(1, 1),
             Call(1, 0),
-            Return,
+            Return(0),
         ];
         let chunk = Chunk {
             code,

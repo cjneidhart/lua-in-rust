@@ -84,9 +84,8 @@ impl Frame {
                 // Functions
                 Instr::Closure(i) => state.instr_closure(self, i),
                 Instr::Call(num_args, num_rets) => state.call(num_args, num_rets)?,
-                Instr::Return => {
-                    state.push_nil();
-                    return Ok(1);
+                Instr::Return(n) => {
+                    return Ok(n);
                 }
 
                 // Literals

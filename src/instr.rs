@@ -154,8 +154,8 @@ pub(super) enum Instr {
     /// stack.
     Negate,
 
-    /// Return from the chunk.
-    Return,
+    /// Return n values from the chunk.
+    Return(u8),
 
     /// Create a closure from a Chunk and push it onto the stack.
     Closure(u8),

@@ -333,9 +333,8 @@ impl State {
         let num_vals_returned = frame.eval(self)?;
         match num_vals_returned {
             0 => {
+                self.stack.truncate(self.stack_bottom);
                 self.stack_bottom = old_stack_bottom;
-                self.stack.truncate(old_stack_bottom);
-                self.push_nil();
             }
             1 => {
                 let ret_val = self.pop_val();
@@ -386,7 +385,13 @@ mod tests {
     fn vm_test02() {
         let mut state = State::new();
         let input = Chunk {
-            code: vec![PushString(1), PushString(2), Concat, SetGlobal(0), Return],
+            code: vec![
+                PushString(1),
+                PushString(2),
+                Concat,
+                SetGlobal(0),
+                Return(0),
+            ],
             number_literals: vec![],
             string_literals: vec!["key".to_string(), "a".to_string(), "b".to_string()],
             nested: vec![],
@@ -401,7 +406,7 @@ mod tests {
     fn vm_test04() {
         let mut state = State::new();
         let input = Chunk {
-            code: vec![PushNum(0), PushNum(0), Equal, SetGlobal(0), Return],
+            code: vec![PushNum(0), PushNum(0), Equal, SetGlobal(0), Return(0)],
             number_literals: vec![2.5],
             string_literals: vec!["a".to_string()],
             nested: vec![],
@@ -421,7 +426,7 @@ mod tests {
                 Pop,
                 PushBool(false),
                 SetGlobal(0),
-                Return,
+                Return(0),
             ],
             number_literals: vec![],
             string_literals: vec!["key".to_string()],
@@ -440,7 +445,7 @@ mod tests {
             BranchFalse(3),
             PushNum(0),
             SetGlobal(0),
-            Return,
+            Return(0),
         ];
         let chunk = Chunk {
             code,
@@ -463,7 +468,7 @@ mod tests {
             BranchFalse(2),
             PushBool(true),
             SetGlobal(0),
-            Return,
+            Return(0),
         ];
         let chunk = Chunk {
             code,
@@ -490,7 +495,7 @@ mod tests {
             Add,
             SetGlobal(0),
             Jump(-9),
-            Return,
+            Return(0),
         ];
         let chunk = Chunk {
             code,
@@ -524,7 +529,7 @@ mod tests {
             Jump(-9),
             GetLocal(0),
             SetGlobal(0),
-            Return,
+            Return(0),
         ];
         let chunk = Chunk {
             code,
@@ -551,7 +556,7 @@ mod tests {
             SetGlobal(0), // a = 2
             // End loop
             ForLoop(0, -3),
-            Return,
+            Return(0),
         ];
         let chunk = Chunk {
             code,
