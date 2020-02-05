@@ -165,7 +165,7 @@ impl<'a> Parser<'a> {
 
     /// The main entry point for the parser. This parses the entire input.
     fn parse_all(mut self) -> Result<Chunk> {
-        let c = self.parse_chunk();
+        let c = self.parse_chunk(&[]);
         let token = self.input.next()?;
         if let TokenType::EndOfFile = token.typ {
             c
@@ -175,9 +175,14 @@ impl<'a> Parser<'a> {
     }
 
     /// Parses a `Chunk`.
-    fn parse_chunk(&mut self) -> Result<Chunk> {
+    fn parse_chunk(&mut self, params: &[&str]) -> Result<Chunk> {
         let mut tmp_chunk = Chunk::default();
         swap(&mut tmp_chunk, &mut self.chunk);
+
+        self.chunk.num_params = params.len() as u8;
+        for &param in params {
+            self.locals.push((param.into(), self.nest_level));
+        }
 
         self.parse_statements()?;
         self.push(Instr::Return(0));
@@ -798,9 +803,8 @@ impl<'a> Parser<'a> {
             }
             TokenType::Function => {
                 self.expect(TokenType::LParen)?;
-                let args = self.parse_args()?;
-                self.expect(TokenType::RParen)?;
-                self.parse_fndef(args)?;
+                let params = self.parse_params()?;
+                self.parse_fndef(params)?;
             }
             TokenType::Nil => self.push(Instr::PushNil),
             TokenType::False => self.push(Instr::PushBool(false)),
@@ -816,22 +820,29 @@ impl<'a> Parser<'a> {
     }
 
     /// Parses the parameters in a function definition.
-    fn parse_args(&mut self) -> Result<Vec<String>> {
-        // TODO: actually parse args
-        let typ = self.input.peek_type()?;
-        assert_eq!(typ, TokenType::RParen, "Can't handle function args yet.");
-        Ok(Vec::new())
+    fn parse_params(&mut self) -> Result<Vec<&'a str>> {
+        let mut args = Vec::new();
+        if self.input.try_pop(TokenType::RParen)?.is_some() {
+            return Ok(args);
+        }
+        args.push(self.expect_identifier()?);
+        while self.input.try_pop(TokenType::Comma)?.is_some() {
+            args.push(self.expect_identifier()?);
+        }
+        self.expect(TokenType::RParen)?;
+        Ok(args)
     }
 
     /// Parses the body of a function definition.
-    fn parse_fndef(&mut self, args: Vec<String>) -> Result<()> {
+    fn parse_fndef(&mut self, params: Vec<&str>) -> Result<()> {
         if self.chunk.nested.len() >= u8::MAX as usize {
             return Err(self.error(ErrorKind::Complexity));
         }
-        assert!(args.is_empty(), "Can't handle function args yet.");
+
         self.nest_level += 1;
-        let new_chunk = self.parse_chunk()?;
+        let new_chunk = self.parse_chunk(&params)?;
         self.level_down();
+
         self.chunk.nested.push(new_chunk);
         self.push(Instr::Closure(self.chunk.nested.len() as u8 - 1));
         self.expect(TokenType::End)?;
@@ -935,8 +946,7 @@ mod tests {
             code: vec![PushNum(0), PushNum(1), Add, SetGlobal(0), Return(0)],
             number_literals: vec![5.0, 6.0],
             string_literals: vec!["x".into()],
-            num_locals: 0,
-            nested: vec![],
+            ..Chunk::default()
         };
         check_it(text, out);
     }
@@ -948,8 +958,7 @@ mod tests {
             code: vec![PushNum(0), PushNum(1), Pow, Negate, SetGlobal(0), Return(0)],
             number_literals: vec![5.0, 2.0],
             string_literals: vec!["x".into()],
-            num_locals: 0,
-            nested: vec![],
+            ..Chunk::default()
         };
         check_it(text, out);
     }
@@ -969,8 +978,7 @@ mod tests {
             ],
             number_literals: vec![5.0],
             string_literals: vec!["x".into(), "hi".into()],
-            num_locals: 0,
-            nested: vec![],
+            ..Chunk::default()
         };
         check_it(text, out);
     }
@@ -990,8 +998,7 @@ mod tests {
             ],
             number_literals: vec![1.0, 2.0, 3.0],
             string_literals: vec!["x".into()],
-            num_locals: 0,
-            nested: vec![],
+            ..Chunk::default()
         };
         check_it(text, output);
     }
@@ -1003,8 +1010,7 @@ mod tests {
             code: vec![PushNum(0), PushNum(1), Negate, Pow, SetGlobal(0), Return(0)],
             number_literals: vec![2.0, 3.0],
             string_literals: vec!["x".into()],
-            nested: vec![],
-            num_locals: 0,
+            ..Chunk::default()
         };
         check_it(text, output);
     }
@@ -1016,8 +1022,7 @@ mod tests {
             code: vec![PushNum(0), Instr::Not, Instr::Not, SetGlobal(0), Return(0)],
             number_literals: vec![1.0],
             string_literals: vec!["x".into()],
-            nested: vec![],
-            num_locals: 0,
+            ..Chunk::default()
         };
         check_it(text, output);
     }
@@ -1029,8 +1034,7 @@ mod tests {
             code: vec![PushNum(0), SetGlobal(0), Return(0)],
             number_literals: vec![5.0],
             string_literals: vec!["a".to_string()],
-            nested: vec![],
-            num_locals: 0,
+            ..Chunk::default()
         };
         check_it(text, output);
     }
@@ -1047,10 +1051,8 @@ mod tests {
                 SetGlobal(0),
                 Return(0),
             ],
-            number_literals: vec![],
             string_literals: vec!["x".into()],
-            nested: vec![],
-            num_locals: 0,
+            ..Chunk::default()
         };
         check_it(text, output);
     }
@@ -1073,8 +1075,7 @@ mod tests {
             code,
             number_literals: vec![5.0],
             string_literals: vec!["x".into()],
-            nested: vec![],
-            num_locals: 0,
+            ..Chunk::default()
         };
         check_it(text, output);
     }
@@ -1093,8 +1094,7 @@ mod tests {
             code,
             number_literals: vec![5.0],
             string_literals: vec!["a".to_string()],
-            nested: vec![],
-            num_locals: 0,
+            ..Chunk::default()
         };
         check_it(text, chunk);
     }
@@ -1117,8 +1117,7 @@ mod tests {
             code,
             number_literals: vec![5.0, 4.0],
             string_literals: vec!["a".to_string(), "b".to_string()],
-            nested: vec![],
-            num_locals: 0,
+            ..Chunk::default()
         };
         check_it(text, chunk);
     }
@@ -1140,8 +1139,7 @@ mod tests {
             code,
             number_literals: vec![5.0, 4.0],
             string_literals: vec!["a".to_string()],
-            nested: vec![],
-            num_locals: 0,
+            ..Chunk::default()
         };
         check_it(text, chunk);
     }
@@ -1170,8 +1168,7 @@ mod tests {
             code,
             number_literals: vec![5.0, 6.0, 7.0, 3.0, 4.0],
             string_literals: vec!["a".to_string()],
-            nested: vec![],
-            num_locals: 0,
+            ..Chunk::default()
         };
         check_it(text, chunk);
     }
@@ -1195,8 +1192,7 @@ mod tests {
             code,
             number_literals: vec![10.0, 1.0],
             string_literals: vec!["a".to_string()],
-            nested: vec![],
-            num_locals: 0,
+            ..Chunk::default()
         };
         check_it(text, chunk);
     }
@@ -1219,8 +1215,8 @@ mod tests {
             code,
             number_literals: vec![5.0, 4.0],
             string_literals: vec!["a".into(), "b".into(), "y".into()],
-            nested: vec![],
             num_locals: 1,
+            ..Chunk::default()
         };
         check_it(text, chunk);
     }
@@ -1232,9 +1228,8 @@ mod tests {
         let chunk = Chunk {
             code,
             number_literals: vec![2.0],
-            string_literals: vec![],
-            nested: vec![],
             num_locals: 1,
+            ..Chunk::default()
         };
         check_it(text, chunk);
     }
@@ -1254,10 +1249,9 @@ mod tests {
         ];
         let chunk = Chunk {
             code,
-            number_literals: vec![],
             string_literals: vec!["print".into()],
-            nested: vec![],
             num_locals: 2,
+            ..Chunk::default()
         };
         check_it(text, chunk);
     }
@@ -1278,10 +1272,9 @@ mod tests {
         ];
         let chunk = Chunk {
             code,
-            number_literals: vec![],
             string_literals: vec!["x".into()],
-            nested: vec![],
             num_locals: 2,
+            ..Chunk::default()
         };
         check_it(text, chunk);
     }
@@ -1300,10 +1293,9 @@ mod tests {
         ];
         let chunk = Chunk {
             code,
-            number_literals: vec![],
             string_literals: vec!["x".into(), "i".into()],
-            nested: vec![],
             num_locals: 1,
+            ..Chunk::default()
         };
         check_it(text, chunk);
     }
@@ -1325,10 +1317,9 @@ mod tests {
         ];
         let chunk = Chunk {
             code,
-            number_literals: vec![],
             string_literals: vec!["x".into()],
-            nested: vec![],
             num_locals: 2,
+            ..Chunk::default()
         };
         check_it(text, chunk);
     }
@@ -1350,8 +1341,8 @@ mod tests {
             code,
             number_literals: vec![1.0, 5.0],
             string_literals: vec!["x".into()],
-            nested: vec![],
             num_locals: 4,
+            ..Chunk::default()
         };
         check_it(text, chunk);
     }
@@ -1364,8 +1355,7 @@ mod tests {
             code,
             number_literals: vec![1.0],
             string_literals: vec!["a".to_string(), "b".to_string()],
-            nested: vec![],
-            num_locals: 0,
+            ..Chunk::default()
         };
         check_it(text, chunk);
     }
@@ -1384,8 +1374,7 @@ mod tests {
             code,
             number_literals: vec![1.0, 2.0],
             string_literals: vec!["a".to_string(), "b".to_string()],
-            nested: vec![],
-            num_locals: 0,
+            ..Chunk::default()
         };
         check_it(text, chunk);
     }
@@ -1406,8 +1395,7 @@ mod tests {
             code,
             number_literals: vec![1.0, 2.0, 3.0],
             string_literals: vec!["a".to_string(), "b".to_string()],
-            nested: vec![],
-            num_locals: 0,
+            ..Chunk::default()
         };
         check_it(text, chunk);
     }
@@ -1418,10 +1406,8 @@ mod tests {
         let code = vec![GetGlobal(0), Call(0, 0), Return(0)];
         let chunk = Chunk {
             code,
-            number_literals: vec![],
             string_literals: vec!["puts".to_string()],
-            nested: vec![],
-            num_locals: 0,
+            ..Chunk::default()
         };
         check_it(text, chunk);
     }
@@ -1434,8 +1420,7 @@ mod tests {
             code,
             number_literals: vec![5.0],
             string_literals: vec!["y".into(), "x".into()],
-            nested: vec![],
-            num_locals: 0,
+            ..Chunk::default()
         };
         check_it(text, chunk);
     }
@@ -1452,10 +1437,9 @@ mod tests {
         ];
         let chunk = Chunk {
             code,
-            number_literals: vec![],
             string_literals: vec!["t".to_string(), "x".to_string(), "y".to_string()],
-            nested: vec![],
             num_locals: 1,
+            ..Chunk::default()
         };
         check_it(text, chunk);
     }
