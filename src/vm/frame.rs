@@ -57,7 +57,7 @@ impl Frame {
     }
 
     /// Start evaluating instructions from the current position.
-    pub(super) fn eval(&mut self, state: &mut State) -> Result<()> {
+    pub(super) fn eval(&mut self, state: &mut State) -> Result<u8> {
         loop {
             let inst = self.get_instr();
             if option_env!("LUA_DEBUG_VM").is_some() {
@@ -85,7 +85,8 @@ impl Frame {
                 Instr::Closure(i) => state.instr_closure(self, i),
                 Instr::Call(num_args, num_rets) => state.call(num_args, num_rets)?,
                 Instr::Return => {
-                    return Ok(());
+                    state.push_nil();
+                    return Ok(1);
                 }
 
                 // Literals

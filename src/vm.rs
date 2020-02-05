@@ -9,7 +9,6 @@ mod table;
 pub use lua_val::LuaType;
 pub use lua_val::RustFunc;
 
-use std::cmp;
 use std::collections::HashMap;
 use std::fs;
 use std::io;
@@ -80,25 +79,28 @@ impl State {
         assert!(num_ret_expected <= 1, "Can't return multiple values yet.");
         let idx = self.stack.len() - num_args as usize - 1;
         let func_val = self.stack.remove(idx);
-        if let Val::RustFn(f) = func_val {
+        let num_ret_actual = if let Val::RustFn(f) = func_val {
             let old_stack_bottom = self.stack_bottom;
             self.stack_bottom = idx;
             let num_ret_actual = f(self)?;
             assert!(num_ret_actual <= 1, "Can't return multiple values yet.");
             self.stack.truncate(idx + num_ret_actual as usize);
             self.stack_bottom = old_stack_bottom;
-            match (num_ret_expected, num_ret_actual) {
-                (1, 0) => self.push_nil(),
-                (0, 1) => self.pop(1),
-                _ => (),
-            }
-            Ok(())
+            num_ret_actual
         } else if let Some(chunk) = func_val.as_lua_function() {
-            self.eval_chunk(chunk)
+            self.eval_chunk(chunk)?
         } else {
             // TODO: handle this
             panic!("Tried to call something not a function.");
+        };
+        match (num_ret_expected, num_ret_actual) {
+            (1, 0) => self.push_nil(),
+            (0, 1) => {
+                self.stack.pop().unwrap();
+            }
+            _ => (),
         }
+        Ok(())
     }
 
     /// Pops `n` values from the stack, concatenates them, and pushes the
@@ -183,8 +185,10 @@ impl State {
 
     /// Pops `n` elements from the stack.
     pub fn pop(&mut self, n: isize) {
-        assert!(n > 0);
-        let n = cmp::min(n as usize, self.get_top());
+        assert!(
+            n <= self.get_top() as isize,
+            "Tried to pop too many elements"
+        );
         for _ in 0..n {
             self.pop_val();
         }
@@ -318,7 +322,7 @@ impl State {
         Error::new(kind, pos, column)
     }
 
-    fn eval_chunk(&mut self, chunk: Chunk) -> Result<()> {
+    fn eval_chunk(&mut self, chunk: Chunk) -> Result<u8> {
         let strings = self.alloc_strings(&chunk.string_literals);
         let old_stack_bottom = self.stack_bottom;
         self.stack_bottom = self.stack.len();
@@ -326,12 +330,24 @@ impl State {
             self.stack.push(Val::Nil);
         }
         let mut frame = Frame::new(chunk, strings);
-        frame.eval(self)?;
-        self.stack_bottom = old_stack_bottom;
-        self.stack.truncate(old_stack_bottom);
-        // Lua functions can't return values yet.
-        self.push_nil();
-        Ok(())
+        let num_vals_returned = frame.eval(self)?;
+        match num_vals_returned {
+            0 => {
+                self.stack_bottom = old_stack_bottom;
+                self.stack.truncate(old_stack_bottom);
+                self.push_nil();
+            }
+            1 => {
+                let ret_val = self.pop_val();
+                self.stack.truncate(self.stack_bottom);
+                self.stack_bottom = old_stack_bottom;
+                self.stack.push(ret_val);
+            }
+            _ => {
+                panic!("Can't handle multiple return values");
+            }
+        }
+        Ok(num_vals_returned)
     }
 
     /// Pop a value from the stack
