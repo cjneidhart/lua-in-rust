@@ -140,10 +140,12 @@ impl Frame {
                 Instr::NewTable => state.new_table(),
                 Instr::GetField(i) => state.instr_get_field(self, i)?,
                 Instr::GetTable => state.instr_get_table()?,
-                Instr::InitField(i) => state.instr_init_field(self, i)?,
-                Instr::InitIndex => state.instr_init_index()?,
+                Instr::InitField(offset, key_id) => state.instr_init_field(self, offset, key_id)?,
+                Instr::InitIndex(offset) => state.instr_init_index(offset)?,
                 Instr::SetField(offset, i) => state.instr_set_field(self, offset, i)?,
                 Instr::SetTable(offset) => state.instr_set_table(offset)?,
+
+                Instr::SetList(n) => state.instr_set_list(n)?,
 
                 // Misc.
                 Instr::Concat => {
@@ -240,26 +242,31 @@ impl State {
         }
     }
 
-    fn instr_init_field(&mut self, frame: &Frame, i: u8) -> Result<()> {
+    fn instr_init_field(&mut self, frame: &Frame, negative_offset: u8, key_id: u8) -> Result<()> {
         let val = self.pop_val();
-        let mut tbl = self.pop_val();
-        let t = tbl.as_table().unwrap();
-        let key = frame.get_string_constant(i);
-        t.insert(key, val)?;
-        self.stack.push(tbl);
-        Ok(())
+        let positive_offset = self.stack.len() - negative_offset as usize - 1;
+        let tbl_value = &mut self.stack[positive_offset];
+        if let Some(tbl) = tbl_value.as_table() {
+            let key = frame.get_string_constant(key_id);
+            tbl.insert(key, val)?;
+            Ok(())
+        } else {
+            Err(self.type_error())
+        }
     }
 
-    fn instr_init_index(&mut self) -> Result<()> {
+    fn instr_init_index(&mut self, negative_offset: u8) -> Result<()> {
         let val = self.pop_val();
         let key = self.pop_val();
-        let mut tbl = self.pop_val();
+        let positive_offset = self.stack.len() - negative_offset as usize - 1;
+        let tbl = &mut self.stack[positive_offset];
         match tbl.as_table() {
-            Some(tbl) => tbl.insert(key, val)?,
-            None => return Err(self.type_error()),
+            Some(tbl) => {
+                tbl.insert(key, val)?;
+                Ok(())
+            }
+            None => Err(self.type_error()),
         }
-        self.stack.push(tbl);
-        Ok(())
     }
 
     fn instr_length(&mut self) -> Result<()> {
@@ -310,6 +317,23 @@ impl State {
         } else {
             // TODO handle this better
             panic!("Tried to index globals with something other than a string.");
+        }
+    }
+
+    fn instr_set_list(&mut self, count: u8) -> Result<()> {
+        assert!(count > 0, "Shouldn't use SetList with count 0");
+        let values = self.stack.split_off(self.stack.len() - count as usize);
+        let mut tbl_value = self.pop_val();
+        if let Some(tbl) = tbl_value.as_table() {
+            let counter = 1..;
+            for (i, val) in counter.zip(values) {
+                let key = Val::Num(i as f64);
+                tbl.insert(key, val)?;
+            }
+            self.stack.push(tbl_value);
+            Ok(())
+        } else {
+            Err(self.type_error())
         }
     }
 

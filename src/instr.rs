@@ -59,13 +59,14 @@ pub(super) enum Instr {
     /// * The table, which will be removed
     SetField(u8, u8),
 
-    /// Assign the value `stack[0]` to the table `stack[-1]` using the string
-    /// literal `op0` as the key. Leave the table on the stack afterwards.
-    InitField(u8),
+    /// Pop a value from the stack. Use `op1` as a string literal's id to get
+    /// the key. The table will be `op0` positions from the top of the stack.
+    /// Put the table back where it was afterwards.
+    InitField(u8, u8),
 
-    /// Pop a value, key, and table, in that order. Perform the assignment,
-    /// then push the table back onto the stack.
-    InitIndex,
+    /// Pop a value then a key. The table will be `op0` positions from the top
+    /// of the stack. Put the table back after the assignment.
+    InitIndex(u8),
 
     /// Get a value from a table.
     GetTable,
@@ -163,4 +164,9 @@ pub(super) enum Instr {
 
     /// Create a closure from a Chunk and push it onto the stack.
     Closure(u8),
+
+    /// Pop n values from the stack, then pop a table. Assign the last value
+    /// popped to `table[1]`, the second-to-last value to `table[2]`, etc.
+    /// Push the table back afterwards.
+    SetList(u8),
 }

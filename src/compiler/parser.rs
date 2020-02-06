@@ -909,41 +909,53 @@ impl<'a> Parser<'a> {
     fn parse_table(&mut self) -> Result<()> {
         self.push(Instr::NewTable);
         if self.input.try_pop(TokenType::RCurly)?.is_none() {
-            self.parse_table_entry()?;
+            // i is the number of array-style entries.
+            let mut i = 0;
+            i = self.parse_table_entry(i)?;
             while let TokenType::Comma | TokenType::Semi = self.input.peek_type()? {
                 self.input.next()?;
                 if self.input.check_type(TokenType::RCurly)? {
                     break;
                 } else {
-                    self.parse_table_entry()?;
+                    i = self.parse_table_entry(i)?;
                 }
             }
             self.expect(TokenType::RCurly)?;
+
+            if i > 0 {
+                self.push(Instr::SetList(i));
+            }
         }
         Ok(())
     }
 
-    /// Parses a potential table entry.
-    fn parse_table_entry(&mut self) -> Result<()> {
-        let tok = self.input.next()?;
-        match tok.typ {
+    /// Parses a table entry.
+    fn parse_table_entry(&mut self, counter: u8) -> Result<u8> {
+        match self.input.peek_type()? {
             TokenType::Identifier => {
-                let s = self.get_text(tok);
-                let index = self.find_or_add_string(s)?;
+                let index = self.expect_identifier_id().unwrap();
                 self.expect(TokenType::Assign)?;
                 self.parse_expr()?;
-                self.push(Instr::InitField(index));
+                self.push(Instr::InitField(counter, index));
+                Ok(counter)
             }
             TokenType::LSquare => {
+                self.input.next().unwrap();
                 self.parse_expr()?;
                 self.expect(TokenType::RSquare)?;
                 self.expect(TokenType::Assign)?;
                 self.parse_expr()?;
-                self.push(Instr::InitIndex);
+                self.push(Instr::InitIndex(counter));
+                Ok(counter)
             }
-            _ => panic!("Also unsupported"),
+            _ => {
+                if counter == u8::MAX {
+                    return Err(self.error(ErrorKind::Complexity));
+                }
+                self.parse_expr()?;
+                Ok(counter + 1)
+            }
         }
-        Ok(())
     }
 
     /// Parses a function call. Returns the number of arguments.
@@ -1477,7 +1489,13 @@ mod tests {
     #[test]
     fn test26() {
         let text = "y = {x = 5,}";
-        let code = vec![NewTable, PushNum(0), InitField(1), SetGlobal(0), Return(0)];
+        let code = vec![
+            NewTable,
+            PushNum(0),
+            InitField(0, 1),
+            SetGlobal(0),
+            Return(0),
+        ];
         let chunk = Chunk {
             code,
             number_literals: vec![5.0],
