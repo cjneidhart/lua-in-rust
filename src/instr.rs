@@ -48,15 +48,15 @@ pub(super) enum Instr {
     /// Create a new table and place it on the stack.
     NewTable,
 
-    /// Index the table on the top of the stack, with the string found in the
-    /// literal set at the given index.
+    /// Pop a table from the top of the stack, index it with the string literal
+    /// with the given index, and push the value onto the stack.
     GetField(u8),
 
     /// Assign to a table. The key will be string literal `op1`.
     /// From the top, the stack should contain:
-    /// * The new value
+    /// * The new value, which will be popped
     /// * `op0` number of other values
-    /// * The table
+    /// * The table, which will be removed
     SetField(u8, u8),
 
     /// Assign the value `stack[0]` to the table `stack[-1]` using the string

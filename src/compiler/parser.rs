@@ -117,6 +117,12 @@ impl<'a> Parser<'a> {
         Ok(name)
     }
 
+    /// Expects an identifier and returns the id of its string literal.
+    fn expect_identifier_id(&mut self) -> Result<u8> {
+        let name = self.expect_identifier()?;
+        self.find_or_add_string(name)
+    }
+
     /// Stores a literal string and returns its index.
     fn find_or_add_string(&mut self, string: &str) -> Result<u8> {
         find_or_add(&mut self.chunk.string_literals, string)
@@ -217,16 +223,51 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Parses a function declaration, which is any statement that starts with
+    /// the keyword `function`.
     fn parse_fndecl(&mut self) -> Result<()> {
         self.input.next()?; // 'function' keyword
         let name = self.expect_identifier()?;
-        let instr = match self.parse_prefix_identifier(name)? {
+        match self.input.peek_type()? {
+            TokenType::Dot => self.parse_fndecl_table(name),
+            _ => self.parse_fndecl_basic(name),
+        }
+    }
+
+    /// Parses a basic function declaration, which just assigns the function to
+    /// a local or global variable.
+    fn parse_fndecl_basic(&mut self, name: &'a str) -> Result<()> {
+        let place_exp = self.parse_prefix_identifier(name)?;
+        let instr = match place_exp {
             PlaceExp::Local(i) => Instr::SetLocal(i),
             PlaceExp::Global(i) => Instr::SetGlobal(i),
-            _ => unreachable!("expect_identifier should only return Local or Global"),
+            _ => unreachable!("place expression was not a local or global variable"),
         };
         self.parse_fndef()?;
         self.push(instr);
+        Ok(())
+    }
+
+    fn parse_fndecl_table(&mut self, table_name: &'a str) -> Result<()> {
+        // Push the table onto the stack.
+        let table_instr = match self.parse_prefix_identifier(table_name)? {
+            PlaceExp::Local(i) => Instr::GetLocal(i),
+            PlaceExp::Global(i) => Instr::GetGlobal(i),
+            _ => unreachable!("place expression was not a local or global variable"),
+        };
+        self.push(table_instr);
+
+        // Parse all the fields. There must be at least one.
+        self.expect(TokenType::Dot)?;
+        let mut last_field_id = self.expect_identifier_id()?;
+        while self.input.try_pop(TokenType::Dot)?.is_some() {
+            self.push(Instr::GetField(last_field_id));
+            last_field_id = self.expect_identifier_id()?;
+        }
+
+        // Parse the function params and body.
+        self.parse_fndef()?;
+        self.push(Instr::SetField(0, last_field_id));
         Ok(())
     }
 
