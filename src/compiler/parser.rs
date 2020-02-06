@@ -934,7 +934,13 @@ impl<'a> Parser<'a> {
                 self.parse_expr()?;
                 self.push(Instr::InitField(index));
             }
-            TokenType::LSquare => panic!("Unsupported"),
+            TokenType::LSquare => {
+                self.parse_expr()?;
+                self.expect(TokenType::RSquare)?;
+                self.expect(TokenType::Assign)?;
+                self.parse_expr()?;
+                self.push(Instr::InitIndex);
+            }
             _ => panic!("Also unsupported"),
         }
         Ok(())

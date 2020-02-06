@@ -63,6 +63,10 @@ pub(super) enum Instr {
     /// literal `op0` as the key. Leave the table on the stack afterwards.
     InitField(u8),
 
+    /// Pop a value, key, and table, in that order. Perform the assignment,
+    /// then push the table back onto the stack.
+    InitIndex,
+
     /// Get a value from a table.
     GetTable,
 

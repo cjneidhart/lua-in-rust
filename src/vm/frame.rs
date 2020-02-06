@@ -141,6 +141,7 @@ impl Frame {
                 Instr::GetField(i) => state.instr_get_field(self, i)?,
                 Instr::GetTable => state.instr_get_table()?,
                 Instr::InitField(i) => state.instr_init_field(self, i)?,
+                Instr::InitIndex => state.instr_init_index()?,
                 Instr::SetField(offset, i) => state.instr_set_field(self, offset, i)?,
                 Instr::SetTable(offset) => state.instr_set_table(offset)?,
 
@@ -245,6 +246,18 @@ impl State {
         let t = tbl.as_table().unwrap();
         let key = frame.get_string_constant(i);
         t.insert(key, val)?;
+        self.stack.push(tbl);
+        Ok(())
+    }
+
+    fn instr_init_index(&mut self) -> Result<()> {
+        let val = self.pop_val();
+        let key = self.pop_val();
+        let mut tbl = self.pop_val();
+        match tbl.as_table() {
+            Some(tbl) => tbl.insert(key, val)?,
+            None => return Err(self.type_error()),
+        }
         self.stack.push(tbl);
         Ok(())
     }
