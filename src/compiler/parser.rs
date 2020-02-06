@@ -207,6 +207,7 @@ impl<'a> Parser<'a> {
                 TokenType::Do => self.parse_do()?,
                 TokenType::Local => self.parse_locals()?,
                 TokenType::For => self.parse_for()?,
+                TokenType::Function => self.parse_fndecl()?,
                 TokenType::Semi => {
                     self.input.next()?;
                 }
@@ -214,6 +215,19 @@ impl<'a> Parser<'a> {
                 _ => break Ok(()),
             }
         }
+    }
+
+    fn parse_fndecl(&mut self) -> Result<()> {
+        self.input.next()?; // 'function' keyword
+        let name = self.expect_identifier()?;
+        let instr = match self.parse_prefix_identifier(name)? {
+            PlaceExp::Local(i) => Instr::SetLocal(i),
+            PlaceExp::Global(i) => Instr::SetGlobal(i),
+            _ => unreachable!("expect_identifier should only return Local or Global"),
+        };
+        self.parse_fndef()?;
+        self.push(instr);
+        Ok(())
     }
 
     /// Parses a return statement. Return statements must always come last in a
@@ -314,12 +328,12 @@ impl<'a> Parser<'a> {
     }
 
     /// Parses a variable's name. This should only ever return `Local` or `Global`.
-    fn parse_prefix_identifier(&mut self, name: &str) -> Result<PrefixExp> {
+    fn parse_prefix_identifier(&mut self, name: &str) -> Result<PlaceExp> {
         match find_last_local(&self.locals, name) {
-            Some(i) => Ok(PrefixExp::Place(PlaceExp::Local(i as u8))),
+            Some(i) => Ok(PlaceExp::Local(i as u8)),
             None => {
                 let i = self.find_or_add_string(name)?;
-                Ok(PrefixExp::Place(PlaceExp::Global(i)))
+                Ok(PlaceExp::Global(i))
             }
         }
     }
@@ -724,7 +738,8 @@ impl<'a> Parser<'a> {
         let prefix = match tok.typ {
             TokenType::Identifier => {
                 let text = self.get_text(tok);
-                self.parse_prefix_identifier(text)?
+                let place = self.parse_prefix_identifier(text)?;
+                PrefixExp::Place(place)
             }
             TokenType::LParen => {
                 self.parse_expr()?;
@@ -802,9 +817,7 @@ impl<'a> Parser<'a> {
                 self.push(Instr::PushString(idx));
             }
             TokenType::Function => {
-                self.expect(TokenType::LParen)?;
-                let params = self.parse_params()?;
-                self.parse_fndef(params)?;
+                self.parse_fndef()?;
             }
             TokenType::Nil => self.push(Instr::PushNil),
             TokenType::False => self.push(Instr::PushBool(false)),
@@ -821,6 +834,7 @@ impl<'a> Parser<'a> {
 
     /// Parses the parameters in a function definition.
     fn parse_params(&mut self) -> Result<Vec<&'a str>> {
+        self.expect(TokenType::LParen)?;
         let mut args = Vec::new();
         if self.input.try_pop(TokenType::RParen)?.is_some() {
             return Ok(args);
@@ -833,8 +847,9 @@ impl<'a> Parser<'a> {
         Ok(args)
     }
 
-    /// Parses the body of a function definition.
-    fn parse_fndef(&mut self, params: Vec<&str>) -> Result<()> {
+    /// Parses the parameters and body of a function definition.
+    fn parse_fndef(&mut self) -> Result<()> {
+        let params = self.parse_params()?;
         if self.chunk.nested.len() >= u8::MAX as usize {
             return Err(self.error(ErrorKind::Complexity));
         }
