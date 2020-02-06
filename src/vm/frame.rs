@@ -1,7 +1,7 @@
 use std::ops;
 
+use super::super::error::TypeError;
 use super::Chunk;
-use super::ErrorKind;
 use super::Instr;
 use super::LuaType;
 use super::Markable;
@@ -179,9 +179,10 @@ impl State {
     }
 
     fn instr_for_prep(&mut self, frame: &mut Frame, local: u8, body_len: isize) -> Result<()> {
-        let step = self.pop_num()?;
-        let end = self.pop_num()?;
-        let start = self.pop_num()?;
+        // These slots should only be assigned to during this function.
+        let step = self.pop_val().as_num().unwrap();
+        let end = self.pop_val().as_num().unwrap();
+        let start = self.pop_val().as_num().unwrap();
         if check_numeric_for_condition(start, end, step) {
             let mut local_slot = local as usize + self.stack_bottom;
             for &n in &[start, end, step, start] {
@@ -216,7 +217,7 @@ impl State {
             self.stack.push(val);
             Ok(())
         } else {
-            Err(self.type_error())
+            Err(self.type_error(TypeError::TableIndex(tbl_val.typ())))
         }
     }
 
@@ -238,7 +239,7 @@ impl State {
             self.stack.push(t.get(&key));
             Ok(())
         } else {
-            Err(self.type_error())
+            Err(self.type_error(TypeError::TableIndex(tbl.typ())))
         }
     }
 
@@ -251,7 +252,10 @@ impl State {
             tbl.insert(key, val)?;
             Ok(())
         } else {
-            Err(self.type_error())
+            panic!(
+                "Table for constructor was a {}, not a table",
+                tbl_value.typ()
+            );
         }
     }
 
@@ -265,7 +269,9 @@ impl State {
                 tbl.insert(key, val)?;
                 Ok(())
             }
-            None => Err(self.type_error()),
+            None => {
+                panic!("Table for constructor was a {}, not a table", tbl.typ());
+            }
         }
     }
 
@@ -281,7 +287,7 @@ impl State {
             LuaType::Table => {
                 panic!("Unsupported: Length of tables");
             }
-            _ => Err(self.type_error()),
+            typ => Err(self.type_error(TypeError::Length(typ))),
         }
     }
 
@@ -305,7 +311,7 @@ impl State {
             t.insert(key, val)?;
             Ok(())
         } else {
-            Err(self.error(ErrorKind::TypeError))
+            Err(self.type_error(TypeError::TableIndex(tbl.typ())))
         }
     }
 
@@ -333,7 +339,7 @@ impl State {
             self.stack.push(tbl_value);
             Ok(())
         } else {
-            Err(self.type_error())
+            panic!("Used Instr::SetList on a {}", tbl_value.typ())
         }
     }
 
@@ -352,7 +358,7 @@ impl State {
             t.insert(key, val)?;
             Ok(())
         } else {
-            Err(self.error(ErrorKind::TypeError))
+            Err(self.type_error(TypeError::TableIndex(tbl.typ())))
         }
     }
 
@@ -373,7 +379,9 @@ impl State {
     }
 
     fn pop_num(&mut self) -> Result<f64> {
-        self.pop_val().as_num().ok_or_else(|| self.type_error())
+        let val = self.pop_val();
+        val.as_num()
+            .ok_or_else(|| self.type_error(TypeError::Arithmetic(val.typ())))
     }
 }
 

@@ -16,6 +16,7 @@ use std::io;
 use std::path::Path;
 
 use super::compiler;
+use super::error::TypeError;
 use super::lua_std;
 use super::Chunk;
 use super::Error;
@@ -91,8 +92,7 @@ impl State {
         } else if let Some(chunk) = func_val.as_lua_function() {
             self.eval_chunk(chunk, num_args)?
         } else {
-            // TODO: handle this
-            panic!("Tried to call something not a function.");
+            return Err(self.type_error(TypeError::FunctionCall(func_val.typ())));
         };
         match (num_ret_expected, num_ret_actual) {
             (1, 0) => self.push_nil(),
@@ -112,14 +112,18 @@ impl State {
         assert!(n == 2, "Can only concatenate two at a time for now");
         let r = self.pop_val();
         let l = self.pop_val();
-        if let (Some(l), Some(r)) = (l.as_string(), r.as_string()) {
-            let mut s = String::new();
-            s.push_str(l);
-            s.push_str(r);
-            self.push_string(s);
-            Ok(())
+        if let Some(l) = l.as_string() {
+            if let Some(r) = r.as_string() {
+                let mut s = String::new();
+                s.push_str(l);
+                s.push_str(r);
+                self.push_string(s);
+                Ok(())
+            } else {
+                Err(self.type_error(TypeError::Concat(r.typ())))
+            }
         } else {
-            Err(self.error(ErrorKind::TypeError))
+            Err(self.type_error(TypeError::Concat(l.typ())))
         }
     }
 
@@ -253,7 +257,9 @@ impl State {
     /// Attempts to convert the value at the given index to a number.
     pub fn to_number(&self, idx: isize) -> Result<f64> {
         let i = self.convert_idx(idx);
-        self.stack[i].as_num().ok_or_else(|| self.type_error())
+        let val = &self.stack[i];
+        val.as_num()
+            .ok_or_else(|| self.type_error(TypeError::Arithmetic(val.typ())))
     }
 
     /// Converts the value at the given index to a string.
@@ -375,8 +381,8 @@ impl State {
         self.stack.push(Val::Obj(obj));
     }
 
-    fn type_error(&self) -> Error {
-        self.error(ErrorKind::TypeError)
+    fn type_error(&self, e: TypeError) -> Error {
+        self.error(ErrorKind::TypeError(e))
     }
 }
 

@@ -154,6 +154,7 @@ impl Markable for Val {
     }
 }
 
+#[derive(Debug)]
 pub enum LuaType {
     Nil,
     Boolean,

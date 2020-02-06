@@ -1,6 +1,8 @@
 use std::fmt;
 use std::io;
 
+use crate::LuaType;
+
 #[derive(Debug)]
 pub enum ErrorKind {
     AssertionFail,
@@ -17,7 +19,7 @@ pub enum ErrorKind {
     UnsupportedFeature,
     TableKeyNan,
     TableKeyNil,
-    TypeError,
+    TypeError(TypeError),
     WithMessage(String),
 }
 
@@ -26,6 +28,16 @@ pub struct Error {
     kind: ErrorKind,
     line_num: usize,
     column: usize,
+}
+
+#[derive(Debug)]
+pub enum TypeError {
+    Arithmetic(LuaType),
+    Comparison(LuaType, LuaType),
+    Concat(LuaType),
+    FunctionCall(LuaType),
+    Length(LuaType),
+    TableIndex(LuaType),
 }
 
 impl ErrorKind {
@@ -45,7 +57,7 @@ impl fmt::Display for ErrorKind {
             BadNumber => write!(f, "malformed number"),
             Complexity => write!(f, "complexity"),
             InvalidCharacter => write!(f, "invalid character"),
-            Io(e) => write!(f, "{}", e),
+            Io(e) => e.fmt(f),
             TooManyLocals => write!(f, "too many local variables"),
             TooManyNumbers => write!(f, "too many literal numbers"),
             TooManyStrings => write!(f, "too many literal strings"),
@@ -55,8 +67,8 @@ impl fmt::Display for ErrorKind {
             UnsupportedFeature => write!(f, "unsupported feature"),
             TableKeyNan => write!(f, "table index was NaN"),
             TableKeyNil => write!(f, "table index was nil"),
-            TypeError => write!(f, "type error"),
-            WithMessage(s) => write!(f, "{}", s),
+            TypeError(e) => e.fmt(f),
+            WithMessage(msg) => msg.fmt(f),
         }
     }
 }
@@ -96,5 +108,19 @@ impl fmt::Display for Error {
 impl From<io::Error> for Error {
     fn from(io_err: io::Error) -> Self {
         Error::without_location(ErrorKind::Io(io_err))
+    }
+}
+
+impl fmt::Display for TypeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use TypeError::*;
+        match self {
+            Arithmetic(typ) => write!(f, "attempt to perform arithmetic on a {} value", typ),
+            Comparison(type1, type2) => write!(f, "attempt to compare {} with {}", type1, type2),
+            Concat(typ) => write!(f, "attempt to concatenate a {} value", typ),
+            FunctionCall(typ) => write!(f, "attempt to call a {} value", typ),
+            Length(typ) => write!(f, "attempt to get length of a {} value", typ),
+            TableIndex(typ) => write!(f, "attempt to index a {} value", typ),
+        }
     }
 }
