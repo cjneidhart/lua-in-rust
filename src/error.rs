@@ -21,6 +21,7 @@ pub enum ErrorKind {
     TableKeyNil,
     TypeError(TypeError),
     WithMessage(String),
+    ArgError(ArgError),
 }
 
 #[derive(Debug)]
@@ -38,6 +39,14 @@ pub enum TypeError {
     FunctionCall(LuaType),
     Length(LuaType),
     TableIndex(LuaType),
+}
+
+#[derive(Debug)]
+pub struct ArgError {
+    pub arg_number: isize,
+    pub func_name: Option<String>,
+    pub expected: Option<LuaType>,
+    pub received: Option<LuaType>,
 }
 
 impl ErrorKind {
@@ -69,6 +78,7 @@ impl fmt::Display for ErrorKind {
             TableKeyNil => write!(f, "table index was nil"),
             TypeError(e) => e.fmt(f),
             WithMessage(msg) => msg.fmt(f),
+            ArgError(e) => e.fmt(f),
         }
     }
 }
@@ -122,5 +132,25 @@ impl fmt::Display for TypeError {
             Length(typ) => write!(f, "attempt to get length of a {} value", typ),
             TableIndex(typ) => write!(f, "attempt to index a {} value", typ),
         }
+    }
+}
+
+impl fmt::Display for ArgError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let func_name = match &self.func_name {
+            Some(s) => s.as_str(),
+            None => "?",
+        };
+        let extra = match (&self.expected, &self.received) {
+            (Some(expected), Some(got)) => format!("{} expected, got {}", expected, got),
+            (Some(expected), None) => format!("{}  expected, got no value", expected),
+            (None, _) => "value expected".into(),
+        };
+
+        write!(
+            f,
+            "bad argument #{} to {} ({})",
+            self.arg_number, func_name, extra
+        )
     }
 }

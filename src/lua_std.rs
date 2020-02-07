@@ -1,8 +1,6 @@
 //! Lua's Standard Library
 
-use super::Error;
 use super::ErrorKind;
-use super::Result;
 use super::State;
 
 pub(super) fn init(state: &mut State) {
@@ -10,43 +8,47 @@ pub(super) fn init(state: &mut State) {
         state.push_rust_fn(func);
         state.set_global(name);
     };
-    add("assert", lua_assert);
-    add("print", lua_print);
-    add("type", lua_type);
-}
 
-fn lua_assert(state: &mut State) -> Result<u8> {
-    // TODO fail with different message if assert receives no args.
-    if state.get_top() >= 1 && state.to_boolean(1) {
-        Ok(0)
-    } else {
-        Err(state.error(ErrorKind::AssertionFail))
-    }
-}
-
-fn lua_print(state: &mut State) -> Result<u8> {
-    let range = 1..=state.get_top();
-    let mut strings = range.map(|i| state.to_string(i as isize));
-    if let Some(s) = strings.next() {
-        print!("{}", s);
-        for s in strings {
-            print!("\t{}", s);
+    // Issues an error when the value of its first argument is false; otherwise,
+    // returns all its arguments. `message` is an error message; when absent,
+    // it defaults to "assertion failed!".
+    add("assert", |state| {
+        state.check_any(1)?;
+        if state.to_boolean(1) {
+            state.remove(1);
+            Ok(state.get_top() as u8)
+        } else {
+            state.remove(1);
+            if state.get_top() == 0 {
+                Err(state.error(ErrorKind::AssertionFail))
+            } else {
+                let s = state.to_string(1);
+                Err(state.error(ErrorKind::WithMessage(s)))
+            }
         }
-    }
-    println!();
-    Ok(0)
-}
+    });
 
-fn lua_type(state: &mut State) -> Result<u8> {
-    if state.get_top() == 0 {
-        let message = "bad argument #1 to 'type' (value expected)".to_string();
-        return Err(Error::new(ErrorKind::WithMessage(message), 0, 0));
-    }
+    // Receives any number of arguments, and prints their values to `stdout`.
+    add("print", |state| {
+        let range = 1..=state.get_top();
+        let mut strings = range.map(|i| state.to_string(i as isize));
+        if let Some(s) = strings.next() {
+            print!("{}", s);
+            for s in strings {
+                print!("\t{}", s);
+            }
+        }
+        println!();
+        Ok(0)
+    });
 
-    let typ = state.typ(1);
-    let typ_string = typ.to_string();
-    state.pop(1);
-    state.push_string(typ_string);
-
-    Ok(1)
+    // Returns the type of its only argument, coded as a string.
+    add("type", |state| {
+        state.check_any(1)?;
+        let typ = state.typ(1);
+        let type_str = typ.to_string();
+        state.pop(state.get_top() as isize);
+        state.push_string(type_str);
+        Ok(1)
+    });
 }

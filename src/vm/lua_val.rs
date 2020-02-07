@@ -154,7 +154,7 @@ impl Markable for Val {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum LuaType {
     Nil,
     Boolean,
@@ -165,7 +165,7 @@ pub enum LuaType {
 }
 
 impl LuaType {
-    fn as_string(&self) -> &'static str {
+    pub fn as_str(&self) -> &'static str {
         use LuaType::*;
         match self {
             Nil => "nil",
@@ -180,6 +180,6 @@ impl LuaType {
 
 impl fmt::Display for LuaType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.as_string())
+        write!(f, "{}", self.as_str())
     }
 }

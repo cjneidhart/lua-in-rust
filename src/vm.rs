@@ -16,6 +16,7 @@ use std::io;
 use std::path::Path;
 
 use super::compiler;
+use super::error::ArgError;
 use super::error::TypeError;
 use super::lua_std;
 use super::Chunk;
@@ -104,6 +105,46 @@ impl State {
         Ok(())
     }
 
+    pub fn check_any(&mut self, arg_number: isize) -> Result<()> {
+        assert!(arg_number != 0);
+        if self.get_top() < arg_number.abs() as usize {
+            let e = ArgError {
+                arg_number,
+                func_name: None,
+                expected: None,
+                received: None,
+            };
+            Err(self.error(ErrorKind::ArgError(e)))
+        } else {
+            Ok(())
+        }
+    }
+
+    pub fn check_type(&mut self, arg_number: isize, expected_type: LuaType) -> Result<()> {
+        assert!(arg_number != 0);
+        if self.get_top() < arg_number.abs() as usize {
+            let e = ArgError {
+                arg_number,
+                func_name: None,
+                expected: Some(expected_type),
+                received: None,
+            };
+            return Err(self.error(ErrorKind::ArgError(e)));
+        }
+        let idx = self.convert_idx(arg_number);
+        let received_type = self.stack[idx].typ();
+        if self.stack[idx].typ() != expected_type {
+            let e = ArgError {
+                arg_number,
+                func_name: None,
+                expected: Some(expected_type),
+                received: Some(received_type),
+            };
+            return Err(self.error(ErrorKind::ArgError(e)));
+        }
+        Ok(())
+    }
+
     /// Pops `n` values from the stack, concatenates them, and pushes the
     /// result. If `n` is 1, the result is the single value on the stack (that
     /// is, the function does nothing); if `n` is 0, the result is the empty
@@ -148,7 +189,7 @@ impl State {
     /// Returns the index of the top element in the stack. Because indices start
     /// at 1, this result is equal to the number of elements in the stack (and
     /// so 0 means an empty stack).
-    pub fn get_top(&mut self) -> usize {
+    pub fn get_top(&self) -> usize {
         self.stack.len() - self.stack_bottom
     }
 
@@ -231,6 +272,11 @@ impl State {
         // TODO: figure out what lua does when index is invalid
         let val = self.at_index(i);
         self.stack.push(val);
+    }
+
+    pub fn remove(&mut self, i: isize) {
+        let idx = self.convert_idx(i);
+        self.stack.remove(idx);
     }
 
     /// Pops a value from the stack, then replaces the value at the given index
