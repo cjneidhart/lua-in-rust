@@ -1,4 +1,4 @@
--- Test nesting of local variables
+-- Test local variables
 
 local l0 = 'a'
 assert(l0 == 'a')
@@ -41,3 +41,12 @@ for i = 1, 10 do
 end
 assert(l0 == 'a')
 assert(l1 == nil)
+
+local x, y = 3, 4, 5
+do
+  local x = x
+  assert(x == 3)
+  x = 5
+  assert(x == 5)
+end
+assert(x == 3)

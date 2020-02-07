@@ -381,44 +381,50 @@ impl<'a> Parser<'a> {
 
     /// Parses a `local` declaration.
     fn parse_locals(&mut self) -> Result<()> {
-        self.input.next()?; // `local` keyword
-        let start = self.locals.len() as u8;
+        self.input.next().unwrap(); // `local` keyword
+        let old_local_count = self.locals.len() as u8;
 
-        let name1 = self.expect_identifier()?;
-        self.add_local(name1)?;
-        let mut num_names = 1;
+        let mut names = Vec::new();
+        // There has to be at least one name
+        names.push(self.expect_identifier()?);
 
         while self.input.try_pop(TokenType::Comma)?.is_some() {
-            let name = self.expect_identifier()?;
-            self.add_local(&name)?;
-            num_names += 1;
+            names.push(self.expect_identifier()?);
         }
 
+        let num_names = names.len() as isize;
         if self.input.try_pop(TokenType::Assign)?.is_some() {
+            // Also perform the assignment
             let num_rvalues = self.parse_explist()? as isize;
-            let diff = num_names - num_rvalues;
-            match diff.cmp(&0) {
+            match num_names.cmp(&num_rvalues) {
                 Ordering::Less => {
-                    for _ in diff..0 {
+                    for _ in num_names..num_rvalues {
                         self.push(Instr::Pop);
                     }
                 }
                 Ordering::Greater => {
-                    for _ in 0..diff {
+                    for _ in num_rvalues..num_names {
                         self.push(Instr::PushNil);
                     }
                 }
                 Ordering::Equal => (),
             }
         } else {
-            for _ in 0..num_names {
+            // They've only been declared, just set them all nil
+            for _ in &names {
                 self.push(Instr::PushNil);
             }
         }
 
-        let stop = start + num_names as u8;
-        for i in (start..stop).rev() {
-            self.push(Instr::SetLocal(i))
+        // Actually perform the assignment
+        for i in (0..num_names).rev() {
+            self.push(Instr::SetLocal(i as u8 + old_local_count));
+        }
+
+        // Bring the new variables into scope. It is important they are not
+        // in scope until after evaluating any assignments.
+        for name in names {
+            self.add_local(name)?;
         }
 
         Ok(())
