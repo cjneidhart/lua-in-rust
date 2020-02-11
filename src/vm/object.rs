@@ -121,6 +121,15 @@ pub(super) struct GcHeap {
 }
 
 impl GcHeap {
+    /// Create a new heap, with the given initial threshold.
+    pub(super) fn with_threshold(threshold: usize) -> Self {
+        Self {
+            start: ptr::null_mut(),
+            size: 0,
+            threshold,
+        }
+    }
+
     /// Run the garbage-collector.
     /// Make sure you mark all the roots before calling this function.
     pub(super) fn collect(&mut self) {
@@ -188,16 +197,6 @@ impl GcHeap {
         self.size += 1;
 
         obj_ptr
-    }
-}
-
-impl Default for GcHeap {
-    fn default() -> Self {
-        Self {
-            start: ptr::null_mut(),
-            size: 0,
-            threshold: 20,
-        }
     }
 }
 

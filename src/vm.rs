@@ -30,11 +30,15 @@ use lua_val::Val;
 use object::{GcHeap, Markable};
 use table::Table;
 
-#[derive(Default)]
+/// The main interface into the Lua VM.
 pub struct State {
+    /// The global environment. This may be changed to an actual Table in the future.
     globals: HashMap<String, Val>,
+    /// The main stack which stores values.
     stack: Vec<Val>,
+    /// The bottom index of the current frame in the stack.
     stack_bottom: usize,
+    /// The heap which holds any garbage-collected Objects.
     heap: GcHeap,
 }
 
@@ -57,12 +61,25 @@ impl Markable for State {
 }
 
 impl State {
+    const GC_INITIAL_THRESHOLD: usize = 20;
+
     /// Creates a new, independent state. This corresponds to the `lua_newstate`
     /// function in the C API.
     pub fn new() -> Self {
-        let mut me = State::default();
-        lua_std::init(&mut me);
+        let mut me = Self::empty();
+        me.open_libs();
         me
+    }
+
+    /// Creates a new state without opening any of the standard libs.
+    /// The global namespace of this state is entirely empty.
+    pub fn empty() -> Self {
+        Self {
+            globals: HashMap::new(),
+            stack: Vec::new(),
+            stack_bottom: 0,
+            heap: GcHeap::with_threshold(Self::GC_INITIAL_THRESHOLD),
+        }
     }
 
     /// Calls a function.
@@ -227,6 +244,10 @@ impl State {
         self.check_heap();
         let t = self.heap.new_table();
         self.stack.push(Val::Obj(t));
+    }
+
+    pub fn open_libs(&mut self) {
+        lua_std::init(self)
     }
 
     /// Pops `n` elements from the stack.
@@ -429,6 +450,12 @@ impl State {
 
     fn type_error(&self, e: TypeError) -> Error {
         self.error(ErrorKind::TypeError(e))
+    }
+}
+
+impl Default for State {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
