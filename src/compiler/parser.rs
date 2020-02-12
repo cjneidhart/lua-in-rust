@@ -25,6 +25,7 @@ struct Parser<'a> {
 
 /// This represents an expression which can appear on the left-hand side of an assignment.
 /// Also called an "lvalue" in other languages.
+#[derive(Clone, Debug)]
 enum PlaceExp {
     /// A local variable, and its index in the list of locals
     Local(u8),
@@ -39,6 +40,7 @@ enum PlaceExp {
 
 /// A "prefix expression" is an expression which could be followed by certain
 /// extensions and still be a valid expression.
+#[derive(Clone, Debug)]
 enum PrefixExp {
     /// One of the variants of `PlaceExp`
     Place(PlaceExp),
@@ -46,6 +48,12 @@ enum PrefixExp {
     FunctionCall(u8),
     /// An expression wrapped in parentheses
     Parenthesized,
+}
+
+#[derive(Debug)]
+enum ExpDesc {
+    Prefix(PrefixExp),
+    Other,
 }
 
 /// Parses Lua source code into a `Chunk`.
@@ -275,7 +283,7 @@ impl<'a> Parser<'a> {
     /// block.
     fn parse_return(&mut self) -> Result<()> {
         self.input.next()?; // 'return' keyword
-        let n = self.parse_explist()?;
+        let (n, _) = self.parse_explist()?;
         self.push(Instr::Return(n));
         self.input.try_pop(TokenType::Semi)?;
         Ok(())
@@ -305,11 +313,21 @@ impl<'a> Parser<'a> {
 
         self.expect(TokenType::Assign)?;
         let num_lvals = places.len() as isize;
-        let num_rvals = self.parse_explist()? as isize;
+        let (num_rvals, last_exp) = self.parse_explist()?;
+        let num_rvals = num_rvals as isize;
         let diff = num_lvals - num_rvals;
         if diff > 0 {
-            for _ in 0..diff {
-                self.push(Instr::PushNil);
+            if let ExpDesc::Prefix(PrefixExp::FunctionCall(_)) = last_exp {
+                let num_args = match self.chunk.code.pop() {
+                    Some(Instr::Call(args, _)) => args,
+                    i => unreachable!("PrefixExp::FunctionCall but last instruction was {:?}", i),
+                };
+                dbg!(num_args);
+                self.push(Instr::Call(num_args, 1 + diff as u8));
+            } else {
+                for _ in 0..diff {
+                    self.push(Instr::PushNil);
+                }
             }
         } else {
             // discard excess rvals
@@ -392,10 +410,10 @@ impl<'a> Parser<'a> {
             names.push(self.expect_identifier()?);
         }
 
-        let num_names = names.len() as isize;
+        let num_names = names.len() as u8;
         if self.input.try_pop(TokenType::Assign)?.is_some() {
             // Also perform the assignment
-            let num_rvalues = self.parse_explist()? as isize;
+            let (num_rvalues, last_exp) = self.parse_explist()?;
             match num_names.cmp(&num_rvalues) {
                 Ordering::Less => {
                     for _ in num_names..num_rvalues {
@@ -403,8 +421,13 @@ impl<'a> Parser<'a> {
                     }
                 }
                 Ordering::Greater => {
-                    for _ in num_rvalues..num_names {
-                        self.push(Instr::PushNil);
+                    if let ExpDesc::Prefix(PrefixExp::FunctionCall(num_args)) = last_exp {
+                        self.chunk.code.pop(); // Pop the old 'Call' instruction
+                        self.push(Instr::Call(num_args, 1 + num_names - num_rvalues));
+                    } else {
+                        for _ in num_rvalues..num_names {
+                            self.push(Instr::PushNil);
+                        }
                     }
                 }
                 Ordering::Equal => (),
@@ -418,11 +441,11 @@ impl<'a> Parser<'a> {
 
         // Actually perform the assignment
         for i in (0..num_names).rev() {
-            self.push(Instr::SetLocal(i as u8 + old_local_count));
+            self.push(Instr::SetLocal(i + old_local_count));
         }
 
         // Bring the new variables into scope. It is important they are not
-        // in scope until after evaluating any assignments.
+        // in scope until after this statement.
         for name in names {
             self.add_local(name)?;
         }
@@ -617,31 +640,33 @@ impl<'a> Parser<'a> {
 
     /// Parses a comma-separated list of expressions. Trailing and leading
     /// commas are not allowed. Returns how many expressions were parsed.
-    fn parse_explist(&mut self) -> Result<u8> {
+    /// `nvalues` is the expected number of values.
+    fn parse_explist(&mut self) -> Result<(u8, ExpDesc)> {
         // An explist has to have at least one expression.
-        self.parse_expr()?;
-        let mut output = 1;
+        let mut last_exp_desc = self.parse_expr()?;
+        let mut num_expressions = 1;
         while let Some(token) = self.input.try_pop(TokenType::Comma)? {
-            if output == u8::MAX {
+            if num_expressions == u8::MAX {
                 return Err(self.error_at(ErrorKind::Complexity, token.start));
             }
-            self.parse_expr()?;
-            output += 1;
+            last_exp_desc = self.parse_expr()?;
+            num_expressions += 1;
         }
 
-        Ok(output)
+        Ok((num_expressions, last_exp_desc))
     }
 
     /// Parses a single expression.
-    fn parse_expr(&mut self) -> Result<()> {
+    fn parse_expr(&mut self) -> Result<ExpDesc> {
         self.parse_or()
     }
 
     /// Parses an `or` expression. Precedence 8.
-    fn parse_or(&mut self) -> Result<()> {
-        self.parse_and()?;
+    fn parse_or(&mut self) -> Result<ExpDesc> {
+        let mut exp_desc = self.parse_and()?;
 
         while self.input.try_pop(TokenType::Or)?.is_some() {
+            exp_desc = ExpDesc::Other;
             let branch_instr_index = self.chunk.code.len();
             self.push(Instr::BranchTrueKeep(0));
             // If we don't short-circuit, pop the left-hand expression
@@ -651,14 +676,15 @@ impl<'a> Parser<'a> {
             self.chunk.code[branch_instr_index] = Instr::BranchTrueKeep(branch_offset);
         }
 
-        Ok(())
+        Ok(exp_desc)
     }
 
     /// Parses `and` expression. Precedence 7.
-    fn parse_and(&mut self) -> Result<()> {
-        self.parse_comparison()?;
+    fn parse_and(&mut self) -> Result<ExpDesc> {
+        let mut exp_desc = self.parse_comparison()?;
 
         while self.input.try_pop(TokenType::And)?.is_some() {
+            exp_desc = ExpDesc::Other;
             let branch_instr_index = self.chunk.code.len();
             self.push(Instr::BranchFalseKeep(0));
             // If we don't short-circuit, pop the left-hand expression
@@ -668,14 +694,14 @@ impl<'a> Parser<'a> {
             self.chunk.code[branch_instr_index] = Instr::BranchFalseKeep(branch_offset);
         }
 
-        Ok(())
+        Ok(exp_desc)
     }
 
     /// Parses a comparison expression. Precedence 6.
     ///
     /// `==`, `~=`, `<`, `<=`, `>`, `>=`
-    fn parse_comparison(&mut self) -> Result<()> {
-        self.parse_concat()?;
+    fn parse_comparison(&mut self) -> Result<ExpDesc> {
+        let mut exp_desc = self.parse_concat()?;
         loop {
             let instr = match self.input.peek_type()? {
                 TokenType::Less => Instr::Less,
@@ -686,43 +712,46 @@ impl<'a> Parser<'a> {
                 TokenType::NotEqual => Instr::NotEqual,
                 _ => break,
             };
+            exp_desc = ExpDesc::Other;
             self.input.next()?;
             self.parse_concat()?;
             self.push(instr);
         }
-        Ok(())
+        Ok(exp_desc)
     }
 
     /// Parses a string concatenation expression (`..`). Precedence 5.
-    fn parse_concat(&mut self) -> Result<()> {
-        self.parse_addition()?;
+    fn parse_concat(&mut self) -> Result<ExpDesc> {
+        let mut exp_desc = self.parse_addition()?;
         if self.input.try_pop(TokenType::DotDot)?.is_some() {
+            exp_desc = ExpDesc::Other;
             self.parse_concat()?;
             self.push(Instr::Concat);
         }
 
-        Ok(())
+        Ok(exp_desc)
     }
 
     /// Parses an addition expression (`+`, `-`). Precedence 4.
-    fn parse_addition(&mut self) -> Result<()> {
-        self.parse_multiplication()?;
+    fn parse_addition(&mut self) -> Result<ExpDesc> {
+        let mut exp_desc = self.parse_multiplication()?;
         loop {
             let instr = match self.input.peek_type()? {
                 TokenType::Plus => Instr::Add,
                 TokenType::Minus => Instr::Subtract,
                 _ => break,
             };
+            exp_desc = ExpDesc::Other;
             self.input.next()?;
             self.parse_multiplication()?;
             self.push(instr);
         }
-        Ok(())
+        Ok(exp_desc)
     }
 
     /// Parses a multiplication expression (`*`, `/`, `%`). Precedence 3.
-    fn parse_multiplication(&mut self) -> Result<()> {
-        self.parse_unary()?;
+    fn parse_multiplication(&mut self) -> Result<ExpDesc> {
+        let mut exp_desc = self.parse_unary()?;
         loop {
             let instr = match self.input.peek_type()? {
                 TokenType::Star => Instr::Multiply,
@@ -730,15 +759,16 @@ impl<'a> Parser<'a> {
                 TokenType::Mod => Instr::Mod,
                 _ => break,
             };
+            exp_desc = ExpDesc::Other;
             self.input.next()?;
             self.parse_unary()?;
             self.push(instr);
         }
-        Ok(())
+        Ok(exp_desc)
     }
 
     /// Parses a unary expression (`not`, `#`, `-`). Precedence 2.
-    fn parse_unary(&mut self) -> Result<()> {
+    fn parse_unary(&mut self) -> Result<ExpDesc> {
         let instr = match self.input.peek_type()? {
             TokenType::Not => Instr::Not,
             TokenType::Hash => Instr::Length,
@@ -751,27 +781,28 @@ impl<'a> Parser<'a> {
         self.parse_unary()?;
         self.push(instr);
 
-        Ok(())
+        Ok(ExpDesc::Other)
     }
 
     /// Parse an exponentiation expression (`^`). Right-associative, Precedence 1.
-    fn parse_pow(&mut self) -> Result<()> {
-        self.parse_primary()?;
+    fn parse_pow(&mut self) -> Result<ExpDesc> {
+        let mut exp_desc = self.parse_primary()?;
         if self.input.try_pop(TokenType::Caret)?.is_some() {
+            exp_desc = ExpDesc::Other;
             self.parse_unary()?;
             self.push(Instr::Pow);
         }
 
-        Ok(())
+        Ok(exp_desc)
     }
 
     /// Parses a 'primary' expression. See `parse_prefix_exp` and `parse_expr_base` for details.
-    fn parse_primary(&mut self) -> Result<()> {
+    fn parse_primary(&mut self) -> Result<ExpDesc> {
         match self.input.peek_type()? {
             TokenType::Identifier | TokenType::LParen => {
                 let prefix = self.parse_prefix_exp()?;
-                self.eval_prefix_exp(prefix);
-                Ok(())
+                self.eval_prefix_exp(prefix.clone());
+                Ok(ExpDesc::Prefix(prefix))
             }
             _ => self.parse_expr_base(),
         }
@@ -823,7 +854,7 @@ impl<'a> Parser<'a> {
             TokenType::LParen => {
                 self.eval_prefix_exp(base_expr);
                 self.input.next()?;
-                let num_args = self.parse_call()?;
+                let (num_args, _) = self.parse_call()?;
                 let prefix = PrefixExp::FunctionCall(num_args);
                 self.parse_prefix_extension(prefix)
             }
@@ -841,7 +872,7 @@ impl<'a> Parser<'a> {
     /// * A function definition
     /// * One of the keywords `nil`, `false` or `true
     /// * A table constructor
-    fn parse_expr_base(&mut self) -> Result<()> {
+    fn parse_expr_base(&mut self) -> Result<ExpDesc> {
         let tok = self.input.next()?;
         match tok.typ {
             TokenType::LCurly => self.parse_table()?,
@@ -876,7 +907,7 @@ impl<'a> Parser<'a> {
                 return Err(self.err_unexpected(tok, TokenType::Nil));
             }
         }
-        Ok(())
+        Ok(ExpDesc::Other)
     }
 
     /// Parses the parameters in a function definition.
@@ -965,14 +996,14 @@ impl<'a> Parser<'a> {
     }
 
     /// Parses a function call. Returns the number of arguments.
-    fn parse_call(&mut self) -> Result<u8> {
-        let num_args = if self.input.check_type(TokenType::RParen)? {
-            0
+    fn parse_call(&mut self) -> Result<(u8, ExpDesc)> {
+        let tup = if self.input.check_type(TokenType::RParen)? {
+            (0, ExpDesc::Other)
         } else {
             self.parse_explist()?
         };
         self.expect(TokenType::RParen)?;
-        Ok(num_args)
+        Ok(tup)
     }
 }
 

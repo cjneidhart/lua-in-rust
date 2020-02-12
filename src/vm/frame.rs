@@ -322,7 +322,7 @@ impl State {
             self.globals.insert(s.into(), val);
         } else {
             // TODO handle this better
-            panic!("Tried to index globals with something other than a string.");
+            panic!("Tried to index globals with {} instead of string", s.typ());
         }
     }
 

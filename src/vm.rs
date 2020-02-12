@@ -96,29 +96,37 @@ impl State {
     /// pushed first), so that after the call the last result is on the top of
     /// the stack.
     pub fn call(&mut self, num_args: u8, num_ret_expected: u8) -> Result<()> {
-        assert!(num_ret_expected <= 1, "Can't return multiple values yet.");
+        // assert!(num_ret_expected <= 1, "Can't return multiple values yet.");
         let idx = self.stack.len() - num_args as usize - 1;
         let func_val = self.stack.remove(idx);
         let num_ret_actual = if let Val::RustFn(f) = func_val {
             let old_stack_bottom = self.stack_bottom;
             self.stack_bottom = idx;
-            let num_ret_actual = f(self)?;
-            assert!(num_ret_actual <= 1, "Can't return multiple values yet.");
-            self.stack.truncate(idx + num_ret_actual as usize);
+            let num_ret_reported = f(self)?;
+            let num_ret_actual = self.get_top() as u8;
+            match num_ret_reported.cmp(&num_ret_actual) {
+                Ordering::Greater => {
+                    for _ in num_ret_actual..num_ret_reported {
+                        self.push_nil();
+                    }
+                }
+                Ordering::Less => {
+                    let slc = &mut self.stack[self.stack_bottom..];
+                    slc.rotate_right(num_ret_reported as usize);
+                    let new_len =
+                        self.stack.len() - num_ret_actual as usize + num_ret_reported as usize;
+                    self.stack.truncate(new_len);
+                }
+                Ordering::Equal => (),
+            }
             self.stack_bottom = old_stack_bottom;
-            num_ret_actual
+            num_ret_reported
         } else if let Some(chunk) = func_val.as_lua_function() {
             self.eval_chunk(chunk, num_args)?
         } else {
             return Err(self.type_error(TypeError::FunctionCall(func_val.typ())));
         };
-        match (num_ret_expected, num_ret_actual) {
-            (1, 0) => self.push_nil(),
-            (0, 1) => {
-                self.stack.pop().unwrap();
-            }
-            _ => (),
-        }
+        self.balance_stack(num_ret_expected as usize, num_ret_actual as usize);
         Ok(())
     }
 
@@ -203,6 +211,27 @@ impl State {
         self.stack.push(val);
     }
 
+    /// Pushes onto the stack the value `t[k]`, where `t` is the value at the given
+    /// valid index and `k` is the value at the top of the stack.
+    ///
+    /// This function pops the key from the stack (putting the resulting value in
+    /// its place). As in Lua, this function may trigger a metamethod for the
+    /// "index" event.
+    pub fn get_table(&mut self, i: isize) -> Result<()> {
+        let idx = self.convert_idx(i);
+        assert!(idx != self.stack.len() - 1);
+        let mut table = self.stack[idx].clone();
+        match table.as_table() {
+            Some(t) => {
+                let key = self.pop_val();
+                let val = t.get(&key);
+                self.stack.push(val);
+                Ok(())
+            }
+            None => Err(self.type_error(TypeError::TableIndex(self.stack[idx].typ()))),
+        }
+    }
+
     /// Returns the index of the top element in the stack. Because indices start
     /// at 1, this result is equal to the number of elements in the stack (and
     /// so 0 means an empty stack).
@@ -254,7 +283,8 @@ impl State {
     pub fn pop(&mut self, n: isize) {
         assert!(
             n <= self.get_top() as isize,
-            "Tried to pop too many elements"
+            "Tried to pop too many elements ({})",
+            n
         );
         for _ in 0..n {
             self.pop_val();
@@ -315,6 +345,33 @@ impl State {
         self.globals.insert(name.to_string(), val);
     }
 
+    /// Accepts any acceptable index, or 0, and sets the stack top to this index.
+    /// If the new top is larger than the old one, then the new elements are filled
+    /// with `nil`. If `index` is 0, then all stack elements are removed.
+    pub fn set_top(&mut self, i: isize) {
+        if i == 0 {
+            self.stack.truncate(self.stack_bottom);
+            return;
+        }
+        let old_top = self.get_top();
+        let idx = if i > 0 && (i as usize) > old_top {
+            self.stack_bottom + i as usize
+        } else {
+            self.convert_idx(i)
+        };
+        match idx.cmp(&old_top) {
+            Ordering::Greater => {
+                for _ in old_top..idx {
+                    self.push_nil();
+                }
+            }
+            Ordering::Less => {
+                self.pop((old_top - idx) as isize);
+            }
+            Ordering::Equal => (),
+        }
+    }
+
     /// Returns whether the value at the given index is not `false` or `nil`.
     pub fn to_boolean(&self, idx: isize) -> bool {
         let val = self.at_index(idx);
@@ -358,6 +415,24 @@ impl State {
     fn at_index(&self, idx: isize) -> Val {
         let i = self.convert_idx(idx);
         self.stack[i].clone()
+    }
+
+    /// Balances a stack after an operation that returns an indefinite number of
+    /// results.
+    fn balance_stack(&mut self, expected: usize, received: usize) {
+        match expected.cmp(&received) {
+            Ordering::Greater => {
+                for _ in received..expected {
+                    self.push_nil();
+                }
+            }
+            Ordering::Less => {
+                for _ in expected..received {
+                    self.pop_val();
+                }
+            }
+            Ordering::Equal => (),
+        }
     }
 
     /// Perform a garbage-collection cycle, if necessary.

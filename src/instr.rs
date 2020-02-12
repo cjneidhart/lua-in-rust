@@ -100,7 +100,7 @@ pub(super) enum Instr {
     /// parameter.
     ForLoop(u8, isize),
 
-    // Function call (number of arguments, number of needed return values).
+    /// Function call (number of arguments, number of needed return values).
     Call(u8, u8),
 
     /// Add the two values on the top of the stack.

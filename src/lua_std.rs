@@ -1,6 +1,7 @@
 //! Lua's Standard Library
 
 use super::ErrorKind;
+use super::LuaType;
 use super::State;
 
 pub(super) fn init(state: &mut State) {
@@ -50,5 +51,26 @@ pub(super) fn init(state: &mut State) {
         state.pop(state.get_top() as isize);
         state.push_string(type_str);
         Ok(1)
+    });
+
+    // unpack(list)
+    //
+    // Returns list[1], list[2], ... list[#list]. The Lua version can take
+    // additional arguments to return only part of the list, but that isn't
+    // supported yet.
+    add("unpack", |state| {
+        state.check_type(1, LuaType::Table)?;
+        let mut i = 1.0;
+        loop {
+            state.push_number(i);
+            state.get_table(1)?;
+            if let LuaType::Nil = state.typ(-1) {
+                state.pop(1);
+                break;
+            } else {
+                i += 1.0;
+            }
+        }
+        Ok(i as u8 - 1)
     });
 }
