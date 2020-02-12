@@ -40,6 +40,8 @@ pub struct State {
     stack_bottom: usize,
     /// The heap which holds any garbage-collected Objects.
     heap: GcHeap,
+    /// The string literals (as `Val`s) of every active `Frame`.
+    string_literals: Vec<Val>,
 }
 
 // Important note on how the stack is tracked:
@@ -51,12 +53,9 @@ pub struct State {
 
 impl Markable for State {
     fn mark_reachable(&self) {
-        for val in self.globals.values() {
-            val.mark_reachable();
-        }
-        for val in &self.stack {
-            val.mark_reachable();
-        }
+        self.stack.mark_reachable();
+        self.globals.mark_reachable();
+        self.string_literals.mark_reachable();
     }
 }
 
@@ -79,6 +78,7 @@ impl State {
             stack: Vec::new(),
             stack_bottom: 0,
             heap: GcHeap::with_threshold(Self::GC_INITIAL_THRESHOLD),
+            string_literals: Vec::new(),
         }
     }
 
@@ -175,7 +175,7 @@ impl State {
     /// string.
     pub fn concat(&mut self, n: usize) -> Result<()> {
         assert!(n == 2, "Can only concatenate two at a time for now");
-        self.concat_helper(n, None)
+        self.concat_helper(n)
     }
 
     /// Loads and runs the given file.
@@ -255,12 +255,8 @@ impl State {
 
     /// Creates a new empty table and pushes it onto the stack.
     pub fn new_table(&mut self) {
-        let Self { stack, globals, .. } = self;
-        let t = self.heap.new_table(|| {
-            stack.mark_reachable();
-            globals.mark_reachable();
-        });
-        self.stack.push(Val::Obj(t));
+        let val = self.alloc_table();
+        self.stack.push(val);
     }
 
     pub fn open_libs(&mut self) {
@@ -301,12 +297,8 @@ impl State {
 
     /// Pushes the given string onto the stack.
     pub fn push_string(&mut self, s: String) {
-        let Self { stack, globals, .. } = self;
-        let obj = self.heap.new_string(s, || {
-            stack.mark_reachable();
-            globals.mark_reachable();
-        });
-        self.stack.push(Val::Obj(obj));
+        let val = self.alloc_string(s);
+        self.stack.push(val);
     }
 
     /// Pushes a copy of the element at the given index onto the stack.
@@ -390,26 +382,34 @@ impl State {
         self.at_index(idx).typ()
     }
 
-    /// Allocate every string in `strs` on the heap.
-    /// The `Val`s returned are always strings.
-    fn alloc_strings<I, S>(&mut self, strings: I) -> Vec<Val>
-    where
-        I: std::iter::IntoIterator<Item = S>,
-        S: ToString,
-    {
-        let mut buffer = Vec::new();
-        for s in strings {
-            let s = s.to_string();
-            let obj = {
-                let Self { stack, globals, .. } = self;
-                self.heap.new_string(s, || {
-                    stack.mark_reachable();
-                    globals.mark_reachable();
-                })
-            };
-            buffer.push(Val::Obj(obj));
-        }
-        buffer
+    fn alloc_string(&mut self, s: String) -> Val {
+        let Self {
+            stack,
+            globals,
+            string_literals,
+            ..
+        } = self;
+        let obj = self.heap.new_string(s, || {
+            stack.mark_reachable();
+            globals.mark_reachable();
+            string_literals.mark_reachable();
+        });
+        Val::Obj(obj)
+    }
+
+    fn alloc_table(&mut self) -> Val {
+        let Self {
+            stack,
+            globals,
+            string_literals,
+            ..
+        } = self;
+        let obj = self.heap.new_table(|| {
+            stack.mark_reachable();
+            globals.mark_reachable();
+            string_literals.mark_reachable();
+        });
+        Val::Obj(obj)
     }
 
     /// Get the value at the given index. Panics if out of bounds.
@@ -436,7 +436,7 @@ impl State {
         }
     }
 
-    fn concat_helper(&mut self, n: usize, frame: Option<&mut Frame>) -> Result<()> {
+    fn concat_helper(&mut self, n: usize) -> Result<()> {
         let mut buffer = String::new();
         let idx = self.stack.len() - n;
         let drain = self.stack.drain(idx..);
@@ -453,17 +453,8 @@ impl State {
             return Err(self.type_error(e));
         }
 
-        let obj = {
-            let Self { stack, globals, .. } = self;
-            self.heap.new_string(buffer, || {
-                stack.mark_reachable();
-                globals.mark_reachable();
-                if let Some(f) = frame {
-                    f.mark_reachable();
-                }
-            })
-        };
-        self.stack.push(Val::Obj(obj));
+        let val = self.alloc_string(buffer);
+        self.stack.push(val);
         Ok(())
     }
 
@@ -489,7 +480,6 @@ impl State {
     }
 
     fn eval_chunk(&mut self, chunk: Chunk, num_args: u8) -> Result<u8> {
-        let strings = self.alloc_strings(&chunk.string_literals);
         let old_stack_bottom = self.stack_bottom;
         self.stack_bottom = self.stack.len() - num_args as usize;
 
@@ -509,7 +499,7 @@ impl State {
             self.push_nil();
         }
 
-        let mut frame = Frame::new(chunk, strings);
+        let mut frame = self.initialize_frame(chunk);
         let num_vals_returned = frame.eval(self)?;
         match num_vals_returned {
             0 => {
@@ -529,16 +519,43 @@ impl State {
         Ok(num_vals_returned)
     }
 
+    fn initialize_frame(&mut self, chunk: Chunk) -> Frame {
+        let string_literal_start = self.string_literals.len();
+        for s in &chunk.string_literals {
+            let obj = {
+                let Self {
+                    stack,
+                    globals,
+                    string_literals,
+                    ..
+                } = self;
+                self.heap.new_string(s.into(), || {
+                    stack.mark_reachable();
+                    globals.mark_reachable();
+                    string_literals.mark_reachable();
+                })
+            };
+            self.string_literals.push(Val::Obj(obj));
+        }
+        Frame::new(chunk, string_literal_start)
+    }
+
     /// Pop a value from the stack
     fn pop_val(&mut self) -> Val {
         self.stack.pop().unwrap()
     }
 
     fn push_chunk(&mut self, chunk: Chunk) {
-        let Self { stack, globals, .. } = self;
+        let Self {
+            stack,
+            globals,
+            string_literals,
+            ..
+        } = self;
         let obj = self.heap.new_lua_fn(chunk, || {
             stack.mark_reachable();
             globals.mark_reachable();
+            string_literals.mark_reachable();
         });
         self.stack.push(Val::Obj(obj));
     }

@@ -4,7 +4,6 @@ use super::super::error::TypeError;
 use super::Chunk;
 use super::Instr;
 use super::LuaType;
-use super::Markable;
 use super::Result;
 use super::State;
 use super::Val;
@@ -16,18 +15,19 @@ pub(super) struct Frame {
     chunk: Chunk,
     /// The index of the next (not current) instruction
     ip: usize,
-    /// The chunk's literal strings, pre-allocated; guaranteed to be strings.
-    string_literals: Vec<Val>,
+    /// Offset into `State.string_literals` where this chunk's literals are
+    /// stored.
+    string_literal_start: usize,
 }
 
 impl Frame {
     /// Create a new Frame.
-    pub(super) fn new(chunk: Chunk, string_literals: Vec<Val>) -> Self {
+    pub(super) fn new(chunk: Chunk, string_literal_start: usize) -> Self {
         let ip = 0;
         Self {
             chunk,
             ip,
-            string_literals,
+            string_literal_start,
         }
     }
 
@@ -50,10 +50,6 @@ impl Frame {
 
     fn get_number_constant(&self, i: u8) -> f64 {
         self.chunk.number_literals[i as usize]
-    }
-
-    fn get_string_constant(&self, i: u8) -> Val {
-        self.string_literals[i as usize].clone()
     }
 
     /// Start evaluating instructions from the current position.
@@ -96,7 +92,7 @@ impl Frame {
                     state.push_number(n);
                 }
                 Instr::PushString(i) => {
-                    let val = self.get_string_constant(i);
+                    let val = state.get_string_constant(self, i);
                     state.stack.push(val);
                 }
 
@@ -136,7 +132,7 @@ impl Frame {
                 Instr::Not => state.instr_not(),
 
                 // Manipulating tables
-                Instr::NewTable => state.instr_new_table(self),
+                Instr::NewTable => state.new_table(),
                 Instr::GetField(i) => state.instr_get_field(self, i)?,
                 Instr::GetTable => state.instr_get_table()?,
                 Instr::InitField(offset, key_id) => state.instr_init_field(self, offset, key_id)?,
@@ -147,7 +143,7 @@ impl Frame {
                 Instr::SetList(n) => state.instr_set_list(n)?,
 
                 // Misc.
-                Instr::Concat => state.concat_helper(2, Some(self))?,
+                Instr::Concat => state.concat_helper(2)?,
             }
         }
     }
@@ -170,13 +166,7 @@ impl State {
 
     fn instr_closure(&mut self, frame: &mut Frame, i: u8) {
         let chunk = frame.get_nested_chunk(i);
-        let Self { stack, globals, .. } = self;
-        let obj = self.heap.new_lua_fn(chunk, || {
-            stack.mark_reachable();
-            globals.mark_reachable();
-            frame.string_literals.mark_reachable();
-        });
-        self.stack.push(Val::Obj(obj));
+        self.push_chunk(chunk);
     }
 
     fn instr_for_prep(&mut self, frame: &mut Frame, local: u8, body_len: isize) -> Result<()> {
@@ -213,7 +203,7 @@ impl State {
     fn instr_get_field(&mut self, frame: &mut Frame, field_id: u8) -> Result<()> {
         let mut tbl_val = self.pop_val();
         if let Some(t) = tbl_val.as_table() {
-            let key = frame.get_string_constant(field_id);
+            let key = self.get_string_constant(frame, field_id);
             let val = t.get(&key);
             self.stack.push(val);
             Ok(())
@@ -247,9 +237,9 @@ impl State {
     fn instr_init_field(&mut self, frame: &Frame, negative_offset: u8, key_id: u8) -> Result<()> {
         let val = self.pop_val();
         let positive_offset = self.stack.len() - negative_offset as usize - 1;
-        let tbl_value = &mut self.stack[positive_offset];
+        let mut tbl_value = self.stack[positive_offset].clone();
         if let Some(tbl) = tbl_value.as_table() {
-            let key = frame.get_string_constant(key_id);
+            let key = self.get_string_constant(frame, key_id);
             tbl.insert(key, val)?;
             Ok(())
         } else {
@@ -298,16 +288,6 @@ impl State {
         Ok(())
     }
 
-    fn instr_new_table(&mut self, frame: &mut Frame) {
-        let Self { stack, globals, .. } = self;
-        let t = self.heap.new_table(|| {
-            stack.mark_reachable();
-            globals.mark_reachable();
-            frame.string_literals.mark_reachable();
-        });
-        self.stack.push(Val::Obj(t));
-    }
-
     fn instr_not(&mut self) {
         let b = self.pop_val().truthy();
         self.stack.push(Val::Bool(!b));
@@ -318,7 +298,7 @@ impl State {
         let idx = self.stack.len() - stack_offset as usize - 1;
         let mut tbl = self.stack.remove(idx);
         if let Some(t) = tbl.as_table() {
-            let key = frame.get_string_constant(field_id);
+            let key = self.get_string_constant(frame, field_id);
             t.insert(key, val)?;
             Ok(())
         } else {
@@ -327,7 +307,7 @@ impl State {
     }
 
     fn instr_set_global(&mut self, frame: &Frame, string_num: u8) {
-        let s = frame.get_string_constant(string_num);
+        let s = self.get_string_constant(frame, string_num);
         let val = self.pop_val();
         if let Some(s) = s.as_string() {
             self.globals.insert(s.into(), val);
@@ -389,18 +369,16 @@ impl State {
         Ok(())
     }
 
+    fn get_string_constant(&self, frame: &Frame, i: u8) -> Val {
+        // self.string_literals[i as usize].clone()
+        let index = frame.string_literal_start + i as usize;
+        self.string_literals[index].clone()
+    }
+
     fn pop_num(&mut self) -> Result<f64> {
         let val = self.pop_val();
         val.as_num()
             .ok_or_else(|| self.type_error(TypeError::Arithmetic(val.typ())))
-    }
-}
-
-impl Markable for Frame {
-    fn mark_reachable(&self) {
-        for val in &self.string_literals {
-            val.mark_reachable()
-        }
     }
 }
 
