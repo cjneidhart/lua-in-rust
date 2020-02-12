@@ -29,6 +29,36 @@ pub(super) fn init(state: &mut State) {
         }
     });
 
+    add("ipairs", |state| {
+        state.check_type(1, LuaType::Table)?;
+        state.set_top(1);
+        state.push_rust_fn(|state| {
+            state.check_type(1, LuaType::Table)?;
+            state.check_type(2, LuaType::Number)?;
+            state.set_top(2);
+            let old_index = state.to_number(2).unwrap();
+            let new_index = old_index + 1.0;
+            state.pop(1); // pop the old number
+            state.push_number(new_index);
+            state.get_table(1)?;
+            if state.to_boolean(-1) {
+                state.push_number(new_index);
+                state.replace(1); // Replaces the table with the index
+                Ok(2)
+            } else {
+                state.set_top(0);
+                state.push_nil();
+                Ok(1)
+            }
+        });
+        // Swap the table and function
+        state.push_value(1);
+        state.remove(1);
+        // Push the initial index
+        state.push_number(0.0);
+        Ok(3)
+    });
+
     // Receives any number of arguments, and prints their values to `stdout`.
     add("print", |state| {
         let range = 1..=state.get_top();

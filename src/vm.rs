@@ -340,26 +340,28 @@ impl State {
     /// If the new top is larger than the old one, then the new elements are filled
     /// with `nil`. If `index` is 0, then all stack elements are removed.
     pub fn set_top(&mut self, i: isize) {
-        if i == 0 {
-            self.stack.truncate(self.stack_bottom);
-            return;
-        }
-        let old_top = self.get_top();
-        let idx = if i > 0 && (i as usize) > old_top {
-            self.stack_bottom + i as usize
-        } else {
-            self.convert_idx(i)
-        };
-        match idx.cmp(&old_top) {
+        match i.cmp(&0) {
+            Ordering::Less => {
+                panic!("negative not supported yet ({})", i);
+            }
+            Ordering::Equal => {
+                self.stack.truncate(self.stack_bottom);
+            }
             Ordering::Greater => {
-                for _ in old_top..idx {
-                    self.push_nil();
+                let i = i as usize;
+                let old_top = self.get_top();
+                match i.cmp(&old_top) {
+                    Ordering::Less => {
+                        self.pop((old_top - i) as isize);
+                    }
+                    Ordering::Equal => (),
+                    Ordering::Greater => {
+                        for _ in old_top..i {
+                            self.push_nil();
+                        }
+                    }
                 }
             }
-            Ordering::Less => {
-                self.pop((old_top - idx) as isize);
-            }
-            Ordering::Equal => (),
         }
     }
 

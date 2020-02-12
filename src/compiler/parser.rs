@@ -322,7 +322,6 @@ impl<'a> Parser<'a> {
                     Some(Instr::Call(args, _)) => args,
                     i => unreachable!("PrefixExp::FunctionCall but last instruction was {:?}", i),
                 };
-                dbg!(num_args);
                 self.push(Instr::Call(num_args, 1 + diff as u8));
             } else {
                 for _ in 0..diff {
