@@ -1,6 +1,9 @@
 use super::error::Error;
 use super::error::ErrorKind;
 use super::error::SyntaxError;
+use super::exp_desc::ExpDesc;
+use super::exp_desc::PlaceExp;
+use super::exp_desc::PrefixExp;
 use super::lexer::TokenStream;
 use super::Chunk;
 use super::Instr;
@@ -22,39 +25,6 @@ struct Parser<'a> {
     chunk: Chunk,
     nest_level: i32,
     locals: Vec<(String, i32)>,
-}
-
-/// This represents an expression which can appear on the left-hand side of an assignment.
-/// Also called an "lvalue" in other languages.
-#[derive(Clone, Debug)]
-enum PlaceExp {
-    /// A local variable, and its index in the list of locals
-    Local(u8),
-    /// A global variable, and its index in the list of string literals
-    Global(u8),
-    /// A table index, with `[` and `]`
-    TableIndex,
-    /// A field access, and the index of the field's identifier in the list of
-    /// string literals
-    FieldAccess(u8),
-}
-
-/// A "prefix expression" is an expression which could be followed by certain
-/// extensions and still be a valid expression.
-#[derive(Clone, Debug)]
-enum PrefixExp {
-    /// One of the variants of `PlaceExp`
-    Place(PlaceExp),
-    /// A function call, and the number of arguments
-    FunctionCall(u8),
-    /// An expression wrapped in parentheses
-    Parenthesized,
-}
-
-#[derive(Debug)]
-enum ExpDesc {
-    Prefix(PrefixExp),
-    Other,
 }
 
 /// Parses Lua source code into a `Chunk`.
@@ -802,7 +772,7 @@ impl<'a> Parser<'a> {
             TokenType::Identifier | TokenType::LParen => {
                 let prefix = self.parse_prefix_exp()?;
                 self.eval_prefix_exp(prefix.clone());
-                Ok(ExpDesc::Prefix(prefix))
+                Ok(prefix.into())
             }
             _ => self.parse_expr_base(),
         }
@@ -817,7 +787,7 @@ impl<'a> Parser<'a> {
             TokenType::Identifier => {
                 let text = self.get_text(tok);
                 let place = self.parse_prefix_identifier(text)?;
-                PrefixExp::Place(place)
+                place.into()
             }
             TokenType::LParen => {
                 self.parse_expr()?;
@@ -840,7 +810,7 @@ impl<'a> Parser<'a> {
                 self.input.next()?;
                 let name = self.expect_identifier()?;
                 let i = self.find_or_add_string(&name)?;
-                let prefix = PrefixExp::Place(PlaceExp::FieldAccess(i));
+                let prefix = PlaceExp::FieldAccess(i).into();
                 self.parse_prefix_extension(prefix)
             }
             TokenType::LSquare => {
@@ -848,7 +818,7 @@ impl<'a> Parser<'a> {
                 self.input.next()?;
                 self.parse_expr()?;
                 self.expect(TokenType::RSquare)?;
-                let prefix = PrefixExp::Place(PlaceExp::TableIndex);
+                let prefix = PlaceExp::TableIndex.into();
                 self.parse_prefix_extension(prefix)
             }
             TokenType::LParen => {

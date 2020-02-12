@@ -1,5 +1,6 @@
 //! Functions and types associated with converting source code into bytecode.
 
+mod exp_desc;
 mod lexer;
 mod parser;
 mod token;
