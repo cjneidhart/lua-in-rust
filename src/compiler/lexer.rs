@@ -1,7 +1,7 @@
 //! This module contains functions which can tokenize a string input.
 
-use super::Error;
-use super::ErrorKind;
+use super::error::Error;
+use super::error::SyntaxError;
 use super::Result;
 use super::Token;
 use super::TokenType::{self, *};
@@ -226,7 +226,7 @@ impl Lexer<'_> {
     }
 
     /// Constructs an error of the given kind at the current position.
-    fn error(&self, kind: ErrorKind) -> Error {
+    fn error(&self, kind: SyntaxError) -> Error {
         let (line_num, column) = self.line_and_col(self.pos);
         Error::new(kind, line_num, column)
     }
@@ -273,7 +273,7 @@ impl Lexer<'_> {
                 '=' => Ok(Assign),
                 '<' => Ok(Less),
                 '>' => Ok(Greater),
-                '~' => Err(self.error(ErrorKind::InvalidCharacter)),
+                '~' => Err(self.error(SyntaxError::InvalidCharacter)),
                 _ => panic!("peek_equals was called with first_char = {}", first_char),
             }
         }
@@ -291,11 +291,11 @@ impl Lexer<'_> {
                 // newlines and quotes, but not escapes like '\n'.
                 self.next_char();
             } else if c == '\n' {
-                return Err(self.error(ErrorKind::UnclosedString));
+                return Err(self.error(SyntaxError::UnclosedString));
             }
         }
 
-        Err(self.error(ErrorKind::UnclosedString))
+        Err(self.error(SyntaxError::UnclosedString))
     }
 
     /// Reads in a number which starts with a digit (as opposed to a decimal point).
@@ -305,7 +305,7 @@ impl Lexer<'_> {
             // Has to be at least one digit
             match self.next_char() {
                 Some(c) if c.is_ascii_hexdigit() => (),
-                _ => return Err(self.error(ErrorKind::BadNumber)),
+                _ => return Err(self.error(SyntaxError::BadNumber)),
             };
             // Read the rest of the numbers
             while let Some(c) = self.peek_char() {
@@ -317,7 +317,7 @@ impl Lexer<'_> {
             }
 
             match self.peek_char() {
-                Some(c) if c.is_ascii_hexdigit() => Err(self.error(ErrorKind::BadNumber)),
+                Some(c) if c.is_ascii_hexdigit() => Err(self.error(SyntaxError::BadNumber)),
                 _ => Ok(LiteralHexNumber),
             }
         } else {
@@ -331,7 +331,7 @@ impl Lexer<'_> {
                     _ => self.lex_exponent(tok_start)?,
                 }
             } else {
-                self.lex_exponent(tok_start)?
+                self.lex_exponent(tok_start)?;
             }
 
             Ok(LiteralNumber)
@@ -369,7 +369,7 @@ impl Lexer<'_> {
             self.lex_digits();
         }
         match self.peek_char() {
-            Some(c) if c.is_ascii_hexdigit() => Err(self.error(ErrorKind::BadNumber)),
+            Some(c) if c.is_ascii_hexdigit() => Err(self.error(SyntaxError::BadNumber)),
             _ => Ok(()),
         }
     }

@@ -4,8 +4,7 @@ mod lexer;
 mod parser;
 mod token;
 
-use super::Error;
-use super::ErrorKind;
+use super::error;
 use super::Instr;
 use super::Result;
 

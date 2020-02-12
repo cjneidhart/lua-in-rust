@@ -17,11 +17,11 @@ use std::path::Path;
 
 use super::compiler;
 use super::error::ArgError;
+use super::error::Error;
+use super::error::ErrorKind;
 use super::error::TypeError;
 use super::lua_std;
 use super::Chunk;
-use super::Error;
-use super::ErrorKind;
 use super::Instr;
 use super::Result;
 

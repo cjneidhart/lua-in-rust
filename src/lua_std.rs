@@ -1,6 +1,6 @@
 //! Lua's Standard Library
 
-use super::ErrorKind;
+use super::error::ErrorKind;
 use super::LuaType;
 use super::State;
 

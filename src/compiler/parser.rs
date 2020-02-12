@@ -1,7 +1,8 @@
+use super::error::Error;
+use super::error::ErrorKind;
+use super::error::SyntaxError;
 use super::lexer::TokenStream;
 use super::Chunk;
-use super::Error;
-use super::ErrorKind;
 use super::Instr;
 use super::Result;
 use super::Token;
@@ -74,7 +75,7 @@ impl<'a> Parser<'a> {
     /// Fails if we have exceeded the maximum number of locals.
     fn add_local(&mut self, name: &str) -> Result<()> {
         if self.locals.len() == u8::MAX as usize {
-            Err(self.error(ErrorKind::TooManyLocals))
+            Err(self.error(SyntaxError::TooManyLocals))
         } else {
             self.locals.push((name.to_string(), self.nest_level));
             if self.locals.len() > self.chunk.num_locals as usize {
@@ -86,13 +87,13 @@ impl<'a> Parser<'a> {
 
     /// Constructs an error of the given kind at the current position.
     // TODO: rename to error_here
-    fn error(&self, kind: ErrorKind) -> Error {
+    fn error(&self, kind: impl Into<ErrorKind>) -> Error {
         let pos = self.input.pos();
         self.error_at(kind, pos)
     }
 
     /// Constructs an error of the given kind and position.
-    fn error_at(&self, kind: ErrorKind, pos: usize) -> Error {
+    fn error_at(&self, kind: impl Into<ErrorKind>, pos: usize) -> Error {
         let (line, column) = self.input.line_and_column(pos);
         Error::new(kind, line, column)
     }
@@ -100,9 +101,9 @@ impl<'a> Parser<'a> {
     /// Constructs an error for when a specific `TokenType` was expected but not found.
     fn err_unexpected(&self, token: Token, _expected: TokenType) -> Error {
         let error_kind = if token.typ == TokenType::EndOfFile {
-            ErrorKind::UnexpectedEof
+            SyntaxError::UnexpectedEof
         } else {
-            ErrorKind::UnexpectedTok
+            SyntaxError::UnexpectedTok
         };
         self.error_at(error_kind, token.start)
     }
@@ -134,13 +135,13 @@ impl<'a> Parser<'a> {
     /// Stores a literal string and returns its index.
     fn find_or_add_string(&mut self, string: &str) -> Result<u8> {
         find_or_add(&mut self.chunk.string_literals, string)
-            .ok_or_else(|| self.error(ErrorKind::TooManyStrings))
+            .ok_or_else(|| self.error(SyntaxError::TooManyStrings))
     }
 
     /// Stores a literal number and returns its index.
     fn find_or_add_number(&mut self, num: f64) -> Result<u8> {
         find_or_add(&mut self.chunk.number_literals, &num)
-            .ok_or_else(|| self.error(ErrorKind::TooManyNumbers))
+            .ok_or_else(|| self.error(SyntaxError::TooManyNumbers))
     }
 
     /// Converts a literal string's offsets into a real String.
@@ -179,10 +180,10 @@ impl<'a> Parser<'a> {
 
     /// The main entry point for the parser. This parses the entire input.
     fn parse_all(mut self) -> Result<Chunk> {
-        let c = self.parse_chunk(&[]);
+        let c = self.parse_chunk(&[])?;
         let token = self.input.next()?;
         if let TokenType::EndOfFile = token.typ {
-            c
+            Ok(c)
         } else {
             Err(self.err_unexpected(token, TokenType::EndOfFile))
         }
@@ -646,7 +647,7 @@ impl<'a> Parser<'a> {
         let mut num_expressions = 1;
         while let Some(token) = self.input.try_pop(TokenType::Comma)? {
             if num_expressions == u8::MAX {
-                return Err(self.error_at(ErrorKind::Complexity, token.start));
+                return Err(self.error_at(SyntaxError::Complexity, token.start));
             }
             last_exp_desc = self.parse_expr()?;
             num_expressions += 1;
@@ -928,7 +929,7 @@ impl<'a> Parser<'a> {
     fn parse_fndef(&mut self) -> Result<()> {
         let params = self.parse_params()?;
         if self.chunk.nested.len() >= u8::MAX as usize {
-            return Err(self.error(ErrorKind::Complexity));
+            return Err(self.error(SyntaxError::Complexity));
         }
 
         self.nest_level += 1;
@@ -986,7 +987,7 @@ impl<'a> Parser<'a> {
             }
             _ => {
                 if counter == u8::MAX {
-                    return Err(self.error(ErrorKind::Complexity));
+                    return Err(self.error(SyntaxError::Complexity));
                 }
                 self.parse_expr()?;
                 Ok(counter + 1)

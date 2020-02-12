@@ -11,12 +11,12 @@
 #![warn(variant_size_differences)]
 
 mod compiler;
-mod error;
 mod instr;
 mod lua_std;
 mod vm;
 
-pub use error::{Error, ErrorKind};
+pub mod error;
+
 pub use vm::LuaType;
 pub use vm::RustFunc;
 pub use vm::State;
@@ -25,4 +25,4 @@ use compiler::Chunk;
 use instr::Instr;
 
 /// Custom result type for evaluating Lua.
-pub type Result<T> = std::result::Result<T, Error>;
+pub type Result<T> = std::result::Result<T, error::Error>;

@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
 use super::Error;
-use super::ErrorKind;
 use super::Markable;
 use super::Result;
+use super::TypeError;
 use super::Val;
 
 #[derive(Debug, Default)]
@@ -22,8 +22,8 @@ impl Table {
 
     pub(super) fn insert(&mut self, key: Val, value: Val) -> Result<()> {
         match key {
-            Val::Nil => Err(Error::new(ErrorKind::TableKeyNil, 0, 0)),
-            Val::Num(n) if n.is_nan() => Err(Error::new(ErrorKind::TableKeyNan, 0, 0)),
+            Val::Nil => Err(Error::new(TypeError::TableKeyNil, 0, 0)),
+            Val::Num(n) if n.is_nan() => Err(Error::new(TypeError::TableKeyNan, 0, 0)),
             _ => {
                 self.map.insert(key, value);
                 Ok(())
