@@ -96,9 +96,8 @@ impl Frame {
                     state.push_number(n);
                 }
                 Instr::PushString(i) => {
-                    // TODO Optimize this so we don't have to clone every time.
-                    let s = self.chunk.string_literals[i as usize].clone();
-                    state.push_string(s);
+                    let val = self.get_string_constant(i);
+                    state.stack.push(val);
                 }
 
                 // Arithmetic
@@ -137,7 +136,7 @@ impl Frame {
                 Instr::Not => state.instr_not(),
 
                 // Manipulating tables
-                Instr::NewTable => state.new_table(),
+                Instr::NewTable => state.instr_new_table(self),
                 Instr::GetField(i) => state.instr_get_field(self, i)?,
                 Instr::GetTable => state.instr_get_table()?,
                 Instr::InitField(offset, key_id) => state.instr_init_field(self, offset, key_id)?,
@@ -148,9 +147,7 @@ impl Frame {
                 Instr::SetList(n) => state.instr_set_list(n)?,
 
                 // Misc.
-                Instr::Concat => {
-                    state.concat(2)?;
-                }
+                Instr::Concat => state.concat_helper(2, Some(self))?,
             }
         }
     }
@@ -172,9 +169,13 @@ impl State {
     }
 
     fn instr_closure(&mut self, frame: &mut Frame, i: u8) {
-        self.check_heap();
         let chunk = frame.get_nested_chunk(i);
-        let obj = self.heap.new_lua_fn(chunk);
+        let Self { stack, globals, .. } = self;
+        let obj = self.heap.new_lua_fn(chunk, || {
+            stack.mark_reachable();
+            globals.mark_reachable();
+            frame.string_literals.mark_reachable();
+        });
         self.stack.push(Val::Obj(obj));
     }
 
@@ -295,6 +296,16 @@ impl State {
         let n = self.pop_num()?;
         self.stack.push(Val::Num(-n));
         Ok(())
+    }
+
+    fn instr_new_table(&mut self, frame: &mut Frame) {
+        let Self { stack, globals, .. } = self;
+        let t = self.heap.new_table(|| {
+            stack.mark_reachable();
+            globals.mark_reachable();
+            frame.string_literals.mark_reachable();
+        });
+        self.stack.push(Val::Obj(t));
     }
 
     fn instr_not(&mut self) {

@@ -96,7 +96,6 @@ impl State {
     /// pushed first), so that after the call the last result is on the top of
     /// the stack.
     pub fn call(&mut self, num_args: u8, num_ret_expected: u8) -> Result<()> {
-        // assert!(num_ret_expected <= 1, "Can't return multiple values yet.");
         let idx = self.stack.len() - num_args as usize - 1;
         let func_val = self.stack.remove(idx);
         let num_ret_actual = if let Val::RustFn(f) = func_val {
@@ -176,21 +175,7 @@ impl State {
     /// string.
     pub fn concat(&mut self, n: usize) -> Result<()> {
         assert!(n == 2, "Can only concatenate two at a time for now");
-        let r = self.pop_val();
-        let l = self.pop_val();
-        if let Some(l) = l.as_string() {
-            if let Some(r) = r.as_string() {
-                let mut s = String::new();
-                s.push_str(l);
-                s.push_str(r);
-                self.push_string(s);
-                Ok(())
-            } else {
-                Err(self.type_error(TypeError::Concat(r.typ())))
-            }
-        } else {
-            Err(self.type_error(TypeError::Concat(l.typ())))
-        }
+        self.concat_helper(n, None)
     }
 
     /// Loads and runs the given file.
@@ -270,8 +255,11 @@ impl State {
 
     /// Creates a new empty table and pushes it onto the stack.
     pub fn new_table(&mut self) {
-        self.check_heap();
-        let t = self.heap.new_table();
+        let Self { stack, globals, .. } = self;
+        let t = self.heap.new_table(|| {
+            stack.mark_reachable();
+            globals.mark_reachable();
+        });
         self.stack.push(Val::Obj(t));
     }
 
@@ -313,8 +301,11 @@ impl State {
 
     /// Pushes the given string onto the stack.
     pub fn push_string(&mut self, s: String) {
-        self.check_heap();
-        let obj = self.heap.new_string(s);
+        let Self { stack, globals, .. } = self;
+        let obj = self.heap.new_string(s, || {
+            stack.mark_reachable();
+            globals.mark_reachable();
+        });
         self.stack.push(Val::Obj(obj));
     }
 
@@ -399,16 +390,24 @@ impl State {
 
     /// Allocate every string in `strs` on the heap.
     /// The `Val`s returned are always strings.
-    fn alloc_strings<I, S>(&mut self, strs: I) -> Vec<Val>
+    fn alloc_strings<I, S>(&mut self, strings: I) -> Vec<Val>
     where
         I: std::iter::IntoIterator<Item = S>,
         S: ToString,
     {
-        use std::iter::FromIterator;
-        Vec::from_iter(strs.into_iter().map(|s| {
-            self.check_heap();
-            Val::Obj(self.heap.new_string(s.to_string()))
-        }))
+        let mut buffer = Vec::new();
+        for s in strings {
+            let s = s.to_string();
+            let obj = {
+                let Self { stack, globals, .. } = self;
+                self.heap.new_string(s, || {
+                    stack.mark_reachable();
+                    globals.mark_reachable();
+                })
+            };
+            buffer.push(Val::Obj(obj));
+        }
+        buffer
     }
 
     /// Get the value at the given index. Panics if out of bounds.
@@ -435,19 +434,35 @@ impl State {
         }
     }
 
-    /// Perform a garbage-collection cycle, if necessary.
-    fn check_heap(&mut self) {
-        self.check_heap_with(|| {});
-    }
-
-    /// Perform a garbage-collection cycle, if necessary. `mark_others` should
-    /// mark any other objects which the `State` does not know about.
-    fn check_heap_with(&mut self, mark_others: impl FnOnce()) {
-        if self.heap.is_full() {
-            self.mark_reachable();
-            mark_others();
-            self.heap.collect();
+    fn concat_helper(&mut self, n: usize, frame: Option<&mut Frame>) -> Result<()> {
+        let mut buffer = String::new();
+        let idx = self.stack.len() - n;
+        let drain = self.stack.drain(idx..);
+        let mut abort = None;
+        for val in drain {
+            if let Some(s) = val.as_string() {
+                buffer.push_str(s);
+            } else {
+                abort = Some(TypeError::Concat(val.typ()));
+                break;
+            }
         }
+        if let Some(e) = abort {
+            return Err(self.type_error(e));
+        }
+
+        let obj = {
+            let Self { stack, globals, .. } = self;
+            self.heap.new_string(buffer, || {
+                stack.mark_reachable();
+                globals.mark_reachable();
+                if let Some(f) = frame {
+                    f.mark_reachable();
+                }
+            })
+        };
+        self.stack.push(Val::Obj(obj));
+        Ok(())
     }
 
     /// Given a relative index, convert it to an absolute index to the stack.
@@ -518,8 +533,11 @@ impl State {
     }
 
     fn push_chunk(&mut self, chunk: Chunk) {
-        self.check_heap();
-        let obj = self.heap.new_lua_fn(chunk);
+        let Self { stack, globals, .. } = self;
+        let obj = self.heap.new_lua_fn(chunk, || {
+            stack.mark_reachable();
+            globals.mark_reachable();
+        });
         self.stack.push(Val::Obj(obj));
     }
 

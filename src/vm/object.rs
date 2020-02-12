@@ -5,6 +5,7 @@
 //! Because of this, it needs to be garbage collected.
 
 use std::cell::Cell;
+use std::collections::HashMap;
 use std::fmt;
 use std::ops::Drop;
 use std::ptr::{self, NonNull};
@@ -165,22 +166,26 @@ impl GcHeap {
         self.size >= self.threshold
     }
 
-    pub(super) fn new_lua_fn(&mut self, chunk: Chunk) -> ObjectPtr {
+    pub(super) fn new_lua_fn(&mut self, chunk: Chunk, mark: impl FnOnce()) -> ObjectPtr {
         let raw = RawObject::LuaFn(Box::new(chunk));
-        self.new_obj_from_raw(raw)
+        self.new_obj_from_raw(raw, mark)
     }
 
-    pub(super) fn new_string(&mut self, s: String) -> ObjectPtr {
+    pub(super) fn new_string(&mut self, s: String, mark: impl FnOnce()) -> ObjectPtr {
         let raw = RawObject::Str(s);
-        self.new_obj_from_raw(raw)
+        self.new_obj_from_raw(raw, mark)
     }
 
-    pub(super) fn new_table(&mut self) -> ObjectPtr {
+    pub(super) fn new_table(&mut self, mark: impl FnOnce()) -> ObjectPtr {
         let raw = RawObject::Table(Table::default());
-        self.new_obj_from_raw(raw)
+        self.new_obj_from_raw(raw, mark)
     }
 
-    fn new_obj_from_raw(&mut self, raw: RawObject) -> ObjectPtr {
+    fn new_obj_from_raw(&mut self, raw: RawObject, mark: impl FnOnce()) -> ObjectPtr {
+        if self.is_full() {
+            mark();
+            self.collect();
+        }
         let new_object = WrappedObject {
             next: self.start,
             color: Cell::new(Color::Unmarked),
@@ -211,6 +216,8 @@ impl Drop for GcHeap {
     }
 }
 
+/// An item is `Markable` if it can be marked as reachable, and thus it and
+/// anything it references will not be collected by the GC.
 pub(super) trait Markable {
     /// Mark this item and the references it contains as reachable.
     fn mark_reachable(&self);
@@ -237,5 +244,24 @@ impl Markable for RawObject {
 impl Markable for ObjectPtr {
     fn mark_reachable(&self) {
         self.deref().mark_reachable()
+    }
+}
+
+/// This impl is mainly for any `Vec<Val>`s we use.
+impl<T: Markable> Markable for [T] {
+    fn mark_reachable(&self) {
+        for val in self {
+            val.mark_reachable();
+        }
+    }
+}
+
+/// This is just for the `globals` field of `State`. It can be removed once
+/// globals are stored in a normal `Table`.
+impl<K, V: Markable> Markable for HashMap<K, V> {
+    fn mark_reachable(&self) {
+        for val in self.values() {
+            val.mark_reachable();
+        }
     }
 }
