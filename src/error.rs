@@ -107,7 +107,7 @@ impl SyntaxError {
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "error {}:{}: {}", self.line_num, self.column, self.kind)
+        write!(f, "{}:{}: {}", self.line_num, self.column, self.kind)
     }
 }
 
@@ -134,7 +134,7 @@ impl fmt::Display for ArgError {
         };
         let extra = match (&self.expected, &self.received) {
             (Some(expected), Some(got)) => format!("{} expected, got {}", expected, got),
-            (Some(expected), None) => format!("{}  expected, got no value", expected),
+            (Some(expected), None) => format!("{} expected, got no value", expected),
             (None, _) => "value expected".into(),
         };
 
