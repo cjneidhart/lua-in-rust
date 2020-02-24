@@ -62,8 +62,7 @@ impl Markable for State {
 impl State {
     const GC_INITIAL_THRESHOLD: usize = 20;
 
-    /// Creates a new, independent state. This corresponds to the `lua_newstate`
-    /// function in the C API.
+    /// Creates a new, independent state.
     pub fn new() -> Self {
         let mut me = Self::empty();
         me.open_libs();
@@ -71,7 +70,8 @@ impl State {
     }
 
     /// Creates a new state without opening any of the standard libs.
-    /// The global namespace of this state is entirely empty.
+    /// The global namespace of this state is entirely empty. This corresponds
+    /// to the `lua_newstate' function in the C API.
     pub fn empty() -> Self {
         Self {
             globals: HashMap::new(),
@@ -259,8 +259,9 @@ impl State {
         self.stack.push(val);
     }
 
+    /// Opens all standard Lua libraries.
     pub fn open_libs(&mut self) {
-        lua_std::init(self)
+        lua_std::open_libs(self)
     }
 
     /// Pops `n` elements from the stack.
