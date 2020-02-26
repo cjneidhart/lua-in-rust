@@ -11,16 +11,12 @@ pub use lua_val::RustFunc;
 
 use std::cmp::Ordering;
 use std::collections::HashMap;
-use std::fs;
 use std::io;
-use std::path::Path;
 
 use super::compiler;
-use super::error::ArgError;
 use super::error::Error;
 use super::error::ErrorKind;
 use super::error::TypeError;
-use super::lua_std;
 use super::Chunk;
 use super::Instr;
 use super::Result;
@@ -129,46 +125,6 @@ impl State {
         Ok(())
     }
 
-    pub fn check_any(&mut self, arg_number: isize) -> Result<()> {
-        assert!(arg_number != 0);
-        if self.get_top() < arg_number.abs() as usize {
-            let e = ArgError {
-                arg_number,
-                func_name: None,
-                expected: None,
-                received: None,
-            };
-            Err(self.error(ErrorKind::ArgError(e)))
-        } else {
-            Ok(())
-        }
-    }
-
-    pub fn check_type(&mut self, arg_number: isize, expected_type: LuaType) -> Result<()> {
-        assert!(arg_number != 0);
-        if self.get_top() < arg_number.abs() as usize {
-            let e = ArgError {
-                arg_number,
-                func_name: None,
-                expected: Some(expected_type),
-                received: None,
-            };
-            return Err(self.error(ErrorKind::ArgError(e)));
-        }
-        let idx = self.convert_idx(arg_number);
-        let received_type = self.stack[idx].typ();
-        if self.stack[idx].typ() != expected_type {
-            let e = ArgError {
-                arg_number,
-                func_name: None,
-                expected: Some(expected_type),
-                received: Some(received_type),
-            };
-            return Err(self.error(ErrorKind::ArgError(e)));
-        }
-        Ok(())
-    }
-
     /// Pops `n` values from the stack, concatenates them, and pushes the
     /// result. If `n` is 1, the result is the single value on the stack (that
     /// is, the function does nothing); if `n` is 0, the result is the empty
@@ -178,16 +134,12 @@ impl State {
         self.concat_helper(n)
     }
 
-    /// Loads and runs the given file.
-    pub fn do_file(&mut self, filename: impl AsRef<Path>) -> Result<()> {
-        self.load_file(filename)?;
-        self.call(0, 0)
-    }
-
-    /// Loads and runs the given string.
-    pub fn do_string(&mut self, s: impl AsRef<str>) -> Result<()> {
-        self.load_string(s)?;
-        self.call(0, 0)
+    /// Copies the element at `from` into the valid index `to`, replacing the
+    /// value at that position. Equivalent to Lua's `lua_copy`.
+    pub fn copy_val(&mut self, from: isize, to: isize) {
+        let val = self.at_index(from);
+        let to = self.convert_idx(to);
+        self.stack[to] = val;
     }
 
     /// Pushes onto the stack the value of the global `name`.
@@ -224,25 +176,25 @@ impl State {
         self.stack.len() - self.stack_bottom
     }
 
+    /// Moves the top element into the given valid index, shifting up the
+    /// elements above this index to open space.
+    pub fn insert(&mut self, index: isize) {
+        let idx = self.convert_idx(index);
+        let slice = &mut self.stack[idx..];
+        slice.rotate_right(1);
+    }
+
     /// Calls `reader` to produce source code, then parses that code and returns
     /// the chunk. If the code is syntactically invalid, but could be valid if
     /// more code was appended, then `reader` will be called again. A common use
     /// for this function is for `reader` to query the user for a line of input.
     pub fn load(&mut self, reader: &mut impl io::Read) -> Result<()> {
         let mut buffer = String::new();
+        // TODO make the lexer actually use a Reader?
         reader.read_to_string(&mut buffer)?;
         compiler::parse_str(&buffer).map(|chunk| {
             self.push_chunk(chunk);
         })
-    }
-
-    /// Loads a file as a Lua chunk. This function uses `load` to load the chunk
-    /// in the file named `filename`.
-    ///
-    /// This function only loads the chunk; it does not run it.
-    pub fn load_file(&mut self, filename: impl AsRef<Path>) -> Result<()> {
-        let mut reader = fs::File::open(filename)?;
-        self.load(&mut reader)
     }
 
     /// Loads a string as a Lua chunk. This function uses `load` to load the
@@ -257,11 +209,6 @@ impl State {
     pub fn new_table(&mut self) {
         let val = self.alloc_table();
         self.stack.push(val);
-    }
-
-    /// Opens all standard Lua libraries.
-    pub fn open_libs(&mut self) {
-        lua_std::open_libs(self)
     }
 
     /// Pops `n` elements from the stack.

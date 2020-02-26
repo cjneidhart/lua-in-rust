@@ -10,6 +10,7 @@
 #![warn(unused)]
 #![warn(variant_size_differences)]
 
+mod aux;
 mod compiler;
 mod instr;
 mod lua_std;
