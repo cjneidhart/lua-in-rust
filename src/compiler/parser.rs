@@ -372,13 +372,7 @@ impl<'a> Parser<'a> {
         self.input.next().unwrap(); // `local` keyword
         let old_local_count = self.locals.len() as u8;
 
-        let mut names = Vec::new();
-        // There has to be at least one name
-        names.push(self.expect_identifier()?);
-
-        while self.input.try_pop(TokenType::Comma)?.is_some() {
-            names.push(self.expect_identifier()?);
-        }
+        let names = self.parse_namelist()?;
 
         let num_names = names.len() as u8;
         if self.input.try_pop(TokenType::Assign)?.is_some() {
@@ -423,6 +417,16 @@ impl<'a> Parser<'a> {
         Ok(())
     }
 
+    /// Parse a comma-separated list of identifiers.
+    fn parse_namelist(&mut self) -> Result<Vec<&'a str>> {
+        let mut names = Vec::new();
+        names.push(self.expect_identifier()?);
+        while self.input.try_pop(TokenType::Comma)?.is_some() {
+            names.push(self.expect_identifier()?);
+        }
+        Ok(names)
+    }
+
     /// Parses a `for` loop, before we know whether it's generic (`for i in t do`) or
     /// numeric (`for i = 1,5 do`).
     fn parse_for(&mut self) -> Result<()> {
@@ -432,7 +436,6 @@ impl<'a> Parser<'a> {
         self.expect(TokenType::Assign)?;
         self.parse_numeric_for(&name)?;
         self.level_down();
-
         Ok(())
     }
 
