@@ -57,8 +57,6 @@ impl ObjectPtr {
         }
     }
 
-    // Clippy isn't smart enough to see we need to take `self` by reference.
-    #[allow(clippy::trivially_copy_pass_by_ref)]
     pub(super) fn as_string(&self) -> Option<&str> {
         match &self.deref().raw {
             RawObject::Str(s) => Some(s),
