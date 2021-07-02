@@ -1,5 +1,5 @@
 use std::env::args;
-use std::io;
+use std::io::{self, Write};
 use std::process::exit;
 
 use lua::State;
@@ -22,6 +22,8 @@ fn run_file(filename: &str) {
 }
 
 fn run_prompt() {
+    let version = env!("CARGO_PKG_VERSION");
+    println!("Lua in Rust {} by Chris Neidhart", version);
     let mut state = State::new();
     loop {
         let load_result = read_stdin(&mut state);
@@ -57,7 +59,7 @@ fn read_stdin(state: &mut State) -> lua::Result<usize> {
         } else {
             print!(">> ");
         }
-        let _ = io::Write::flush(&mut stdout);
+        let _ = stdout.flush();
 
         total_bytes_read += stdin.read_line(&mut buffer)?;
         if total_bytes_read == 0 {
