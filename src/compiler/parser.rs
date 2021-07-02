@@ -419,8 +419,7 @@ impl<'a> Parser<'a> {
 
     /// Parse a comma-separated list of identifiers.
     fn parse_namelist(&mut self) -> Result<Vec<&'a str>> {
-        let mut names = Vec::new();
-        names.push(self.expect_identifier()?);
+        let mut names = vec![self.expect_identifier()?];
         while self.input.try_pop(TokenType::Comma)?.is_some() {
             names.push(self.expect_identifier()?);
         }

@@ -53,10 +53,7 @@ impl Val {
     }
 
     pub(super) fn truthy(&self) -> bool {
-        match self {
-            Nil | Bool(false) => false,
-            _ => true,
-        }
+        !matches!(self, Nil | Bool(false))
     }
 
     /// Returns the value's type.

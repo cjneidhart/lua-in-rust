@@ -95,11 +95,11 @@ impl ErrorKind {
 }
 
 impl SyntaxError {
+    /// Returns true if this is a SyntaxError that can be fixed by appending
+    /// more text to the source code.
     pub fn is_recoverable(&self) -> bool {
-        match self {
-            Self::UnclosedString | Self::UnexpectedEof => true,
-            _ => false,
-        }
+        // matches!(self, Self::UnclosedString | Self::UnexpectedEof)
+        matches!(self, Self::UnexpectedEof)
     }
 }
 

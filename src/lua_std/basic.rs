@@ -15,17 +15,15 @@ pub(crate) fn open_base(state: &mut State) {
     // it defaults to "assertion failed!".
     add("assert", |state| {
         state.check_any(1)?;
-        if state.to_boolean(1) {
-            state.remove(1);
+        let cond = state.to_boolean(1);
+        state.remove(1);
+        if cond {
             Ok(state.get_top() as u8)
+        } else if state.get_top() == 0 {
+            Err(state.error(ErrorKind::AssertionFail))
         } else {
-            state.remove(1);
-            if state.get_top() == 0 {
-                Err(state.error(ErrorKind::AssertionFail))
-            } else {
-                let s = state.to_string(1);
-                Err(state.error(ErrorKind::WithMessage(s)))
-            }
+            let s = state.to_string(1);
+            Err(state.error(ErrorKind::WithMessage(s)))
         }
     });
 
