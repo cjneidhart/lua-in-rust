@@ -433,7 +433,7 @@ impl<'a> Parser<'a> {
         let name = self.expect_identifier()?;
         self.nest_level += 1;
         self.expect(TokenType::Assign)?;
-        self.parse_numeric_for(&name)?;
+        self.parse_numeric_for(name)?;
         self.level_down();
         Ok(())
     }
@@ -447,7 +447,7 @@ impl<'a> Parser<'a> {
         self.add_local("")?;
 
         // The actual local is in a fourth slot, so that it can be reassigned to.
-        self.add_local(&name)?;
+        self.add_local(name)?;
 
         // First, all 3 control expressions are evaluated.
         self.parse_expr()?;
@@ -811,7 +811,7 @@ impl<'a> Parser<'a> {
                 self.eval_prefix_exp(base_expr);
                 self.input.next()?;
                 let name = self.expect_identifier()?;
-                let i = self.find_or_add_string(&name)?;
+                let i = self.find_or_add_string(name)?;
                 let prefix = PlaceExp::FieldAccess(i).into();
                 self.parse_prefix_extension(prefix)
             }
