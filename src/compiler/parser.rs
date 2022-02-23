@@ -5,17 +5,15 @@ use super::exp_desc::ExpDesc;
 use super::exp_desc::PlaceExp;
 use super::exp_desc::PrefixExp;
 use super::lexer::TokenStream;
+use super::token::Token;
+use super::token::TokenType;
 use super::Chunk;
 use super::Instr;
 use super::Result;
-use super::Token;
-use super::TokenType;
 
 use std::borrow::Borrow;
 use std::cmp::Ordering;
 use std::mem::swap;
-use std::str;
-use std::u8;
 
 /// Tracks the current state, to make parsing easier.
 #[derive(Debug)]
@@ -57,18 +55,21 @@ impl<'a> Parser<'a> {
 
     /// Constructs an error of the given kind at the current position.
     // TODO: rename to error_here
+    #[must_use]
     fn error(&self, kind: impl Into<ErrorKind>) -> Error {
         let pos = self.input.pos();
         self.error_at(kind, pos)
     }
 
     /// Constructs an error of the given kind and position.
+    #[must_use]
     fn error_at(&self, kind: impl Into<ErrorKind>, pos: usize) -> Error {
         let (line, column) = self.input.line_and_column(pos);
         Error::new(kind, line, column)
     }
 
     /// Constructs an error for when a specific `TokenType` was expected but not found.
+    #[must_use]
     fn err_unexpected(&self, token: Token, _expected: TokenType) -> Error {
         let error_kind = if token.typ == TokenType::EndOfFile {
             SyntaxError::UnexpectedEof
@@ -115,6 +116,7 @@ impl<'a> Parser<'a> {
     }
 
     /// Converts a literal string's offsets into a real String.
+    #[must_use]
     fn get_literal_string_contents(&self, tok: Token) -> &'a str {
         // Chop off the quotes
         let Token { start, len, typ } = tok;
@@ -125,6 +127,7 @@ impl<'a> Parser<'a> {
     }
 
     /// Gets the original source code contained by a token.
+    #[must_use]
     fn get_text(&self, token: Token) -> &'a str {
         self.input.from_src(token.range())
     }
@@ -338,17 +341,17 @@ impl<'a> Parser<'a> {
     }
 
     /// Emits code to evaluate the prefix expression as a normal expression.
-    fn eval_prefix_exp(&mut self, exp: PrefixExp) {
+    fn eval_prefix_exp(&mut self, exp: &PrefixExp) {
         match exp {
             PrefixExp::FunctionCall(num_args) => {
-                self.push(Instr::Call(num_args, 1));
+                self.push(Instr::Call(*num_args, 1));
             }
             PrefixExp::Parenthesized => (),
             PrefixExp::Place(place) => {
                 let instr = match place {
-                    PlaceExp::Local(i) => Instr::GetLocal(i),
-                    PlaceExp::Global(i) => Instr::GetGlobal(i),
-                    PlaceExp::FieldAccess(i) => Instr::GetField(i),
+                    PlaceExp::Local(i) => Instr::GetLocal(*i),
+                    PlaceExp::Global(i) => Instr::GetGlobal(*i),
+                    PlaceExp::FieldAccess(i) => Instr::GetField(*i),
                     PlaceExp::TableIndex => Instr::GetTable,
                 };
                 self.push(instr);
@@ -773,7 +776,7 @@ impl<'a> Parser<'a> {
         match self.input.peek_type()? {
             TokenType::Identifier | TokenType::LParen => {
                 let prefix = self.parse_prefix_exp()?;
-                self.eval_prefix_exp(prefix.clone());
+                self.eval_prefix_exp(&prefix);
                 Ok(prefix.into())
             }
             _ => self.parse_expr_base(),
@@ -808,15 +811,15 @@ impl<'a> Parser<'a> {
     fn parse_prefix_extension(&mut self, base_expr: PrefixExp) -> Result<PrefixExp> {
         match self.input.peek_type()? {
             TokenType::Dot => {
-                self.eval_prefix_exp(base_expr);
+                self.eval_prefix_exp(&base_expr);
                 self.input.next()?;
-                let name = self.expect_identifier()?;
-                let i = self.find_or_add_string(name)?;
-                let prefix = PlaceExp::FieldAccess(i).into();
+                let field_name = self.expect_identifier()?;
+                let name_idx = self.find_or_add_string(field_name)?;
+                let prefix = PlaceExp::FieldAccess(name_idx).into();
                 self.parse_prefix_extension(prefix)
             }
             TokenType::LSquare => {
-                self.eval_prefix_exp(base_expr);
+                self.eval_prefix_exp(&base_expr);
                 self.input.next()?;
                 self.parse_expr()?;
                 self.expect(TokenType::RSquare)?;
@@ -824,7 +827,7 @@ impl<'a> Parser<'a> {
                 self.parse_prefix_extension(prefix)
             }
             TokenType::LParen => {
-                self.eval_prefix_exp(base_expr);
+                self.eval_prefix_exp(&base_expr);
                 self.input.next()?;
                 let (num_args, _) = self.parse_call()?;
                 let prefix = PrefixExp::FunctionCall(num_args);
@@ -850,7 +853,7 @@ impl<'a> Parser<'a> {
             TokenType::LCurly => self.parse_table()?,
             TokenType::LiteralNumber => {
                 let text = self.get_text(tok);
-                let number = text.parse::<f64>().unwrap();
+                let number = text.parse().unwrap();
                 let idx = self.find_or_add_number(number)?;
                 self.push(Instr::PushNum(idx));
             }
@@ -866,9 +869,7 @@ impl<'a> Parser<'a> {
                 let idx = self.find_or_add_string(text)?;
                 self.push(Instr::PushString(idx));
             }
-            TokenType::Function => {
-                self.parse_fndef()?;
-            }
+            TokenType::Function => self.parse_fndef()?,
             TokenType::Nil => self.push(Instr::PushNil),
             TokenType::False => self.push(Instr::PushBool(false)),
             TokenType::True => self.push(Instr::PushBool(true)),
@@ -980,6 +981,7 @@ impl<'a> Parser<'a> {
 }
 
 /// Finds the index of the last local entry which matches `name`.
+#[must_use]
 fn find_last_local(locals: &[(String, i32)], name: &str) -> Option<usize> {
     let mut i = locals.len();
     while i > 0 {
@@ -992,7 +994,7 @@ fn find_last_local(locals: &[(String, i32)], name: &str) -> Option<usize> {
     None
 }
 
-/// Returns the index of a number in the literals list, adding it if it does not exist.
+/// Returns the index of an entry in the literals list, adding it if it does not exist.
 fn find_or_add<T, E>(queue: &mut Vec<T>, x: &E) -> Option<u8>
 where
     T: Borrow<E> + PartialEq<E>,

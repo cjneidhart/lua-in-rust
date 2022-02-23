@@ -9,9 +9,6 @@ use super::error;
 use super::Instr;
 use super::Result;
 
-use token::Token;
-use token::TokenType;
-
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(super) struct Chunk {
     pub(super) code: Vec<Instr>,

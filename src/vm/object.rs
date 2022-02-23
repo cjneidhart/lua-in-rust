@@ -34,7 +34,8 @@ enum RawObject {
 }
 
 impl RawObject {
-    pub(super) fn typ(&self) -> LuaType {
+    #[must_use]
+    pub(super) const fn typ(&self) -> LuaType {
         match self {
             RawObject::LuaFn(_) => LuaType::Function,
             RawObject::Str(_) => LuaType::String,
@@ -160,7 +161,8 @@ impl GcHeap {
         self.threshold = self.size * 2;
     }
 
-    pub(super) fn is_full(&self) -> bool {
+    #[must_use]
+    pub(super) const fn is_full(&self) -> bool {
         self.size >= self.threshold
     }
 

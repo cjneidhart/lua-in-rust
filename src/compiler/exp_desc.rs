@@ -1,3 +1,6 @@
+//! This module holds enums which describe the different types of Lua
+//! expressions.
+
 #[derive(Debug)]
 pub(super) enum ExpDesc {
     Prefix(PrefixExp),

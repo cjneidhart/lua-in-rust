@@ -35,7 +35,7 @@ pub struct ArgError {
 pub enum SyntaxError {
     BadNumber,
     Complexity,
-    InvalidCharacter,
+    InvalidCharacter(char),
     TooManyLocals,
     TooManyNumbers,
     TooManyStrings,
@@ -152,7 +152,7 @@ impl fmt::Display for SyntaxError {
         match self {
             BadNumber => write!(f, "malformed number"),
             Complexity => write!(f, "complexity"),
-            InvalidCharacter => write!(f, "invalid character"),
+            InvalidCharacter(c) => write!(f, "invalid character {c}"),
             TooManyLocals => write!(f, "too many local variables"),
             TooManyNumbers => write!(f, "too many literal numbers"),
             TooManyStrings => write!(f, "too many literal strings"),

@@ -9,7 +9,6 @@ use super::State;
 use super::Val;
 
 /// A `Frame` represents a single stack-frame of a Lua function.
-#[derive(Default)]
 pub(super) struct Frame {
     /// The chunk being executed
     chunk: Chunk,
@@ -22,6 +21,7 @@ pub(super) struct Frame {
 
 impl Frame {
     /// Create a new Frame.
+    #[must_use]
     pub(super) fn new(chunk: Chunk, string_literal_start: usize) -> Self {
         let ip = 0;
         Self {
@@ -44,10 +44,12 @@ impl Frame {
         i
     }
 
+    #[must_use]
     fn get_nested_chunk(&mut self, i: u8) -> Chunk {
         self.chunk.nested[i as usize].clone()
     }
 
+    #[must_use]
     fn get_number_constant(&self, i: u8) -> f64 {
         self.chunk.number_literals[i as usize]
     }

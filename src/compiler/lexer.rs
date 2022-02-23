@@ -2,9 +2,9 @@
 
 use super::error::Error;
 use super::error::SyntaxError;
+use super::token::Token;
+use super::token::TokenType::{self, *};
 use super::Result;
-use super::Token;
-use super::TokenType::{self, *};
 
 use std::iter::Peekable;
 use std::slice::SliceIndex;
@@ -31,8 +31,9 @@ pub(super) struct Lexer<'a> {
 
 impl<'a> TokenStream<'a> {
     /// Constructs a new `TokenStream`.
+    #[must_use]
     pub(super) fn new(source: &'a str) -> Self {
-        TokenStream {
+        Self {
             lexer: Lexer::new(source),
             lookahead: None,
         }
@@ -75,11 +76,13 @@ impl<'a> TokenStream<'a> {
     }
 
     /// Returns the current position of the `TokenStream`.
+    #[must_use]
     pub(super) fn line_and_column(&self, pos: usize) -> (usize, usize) {
         self.lexer.line_and_col(pos)
     }
 
     /// Returns how many bytes have been read.
+    #[must_use]
     pub(super) fn pos(&self) -> usize {
         match &self.lookahead {
             Some(token) => token.start,
@@ -88,16 +91,18 @@ impl<'a> TokenStream<'a> {
     }
 
     /// Returns a substring from the source code.
+    #[must_use]
     pub(super) fn from_src(&self, index: impl SliceIndex<str, Output = str>) -> &'a str {
         &self.lexer.source[index]
     }
 }
 
-impl Lexer<'_> {
+impl<'a> Lexer<'a> {
     /// Constructs a new `Lexer`.
-    pub(super) fn new(source: &str) -> Lexer<'_> {
+    #[must_use]
+    pub(super) fn new(source: &'a str) -> Self {
         let linebreaks = vec![0];
-        Lexer {
+        Self {
             iter: source.char_indices().peekable(),
             linebreaks,
             pos: 0,
@@ -138,8 +143,7 @@ impl Lexer<'_> {
                     }
                 }
 
-                '\'' => self.lex_string(true, tok_start)?,
-                '\"' => self.lex_string(false, tok_start)?,
+                '\'' | '\"' => self.lex_string(first_char, tok_start)?,
                 '[' => {
                     if let Some('=') | Some('[') = self.peek_char() {
                         panic!("Long strings are not supported yet.");
@@ -148,13 +152,11 @@ impl Lexer<'_> {
                     }
                 }
 
-                _ if first_char.is_ascii_digit() => self.lex_full_number(tok_start, first_char)?,
+                '0'..='9' => self.lex_full_number(tok_start, first_char)?,
 
-                _ if first_char.is_ascii_alphabetic() || first_char == '_' => {
-                    self.lex_word(first_char)
-                }
+                'a'..='z' | 'A'..='Z' | '_' => self.lex_word(first_char),
 
-                _ => unimplemented!(),
+                _ => return Err(self.error(SyntaxError::InvalidCharacter(first_char))),
             };
             let len = (self.pos - tok_start) as u32;
             let token = Token {
@@ -180,6 +182,7 @@ impl Lexer<'_> {
     }
 
     /// Peeks the next character.
+    #[must_use]
     fn peek_char(&mut self) -> Option<char> {
         self.iter.peek().map(|(_, c)| *c)
     }
@@ -226,6 +229,7 @@ impl Lexer<'_> {
     }
 
     /// Constructs an error of the given kind at the current position.
+    #[must_use]
     fn error(&self, kind: SyntaxError) -> Error {
         let (line_num, column) = self.line_and_col(self.pos);
         Error::new(kind, line_num, column)
@@ -273,7 +277,7 @@ impl Lexer<'_> {
                 '=' => Ok(Assign),
                 '<' => Ok(Less),
                 '>' => Ok(Greater),
-                '~' => Err(self.error(SyntaxError::InvalidCharacter)),
+                '~' => Err(self.error(SyntaxError::InvalidCharacter(first_char))),
                 _ => panic!("peek_equals was called with first_char = {}", first_char),
             }
         }
@@ -281,9 +285,9 @@ impl Lexer<'_> {
 
     /// Tokenizes a 'short' literal string, AKA a string denoted by single or
     /// double quotes and not by two square brackets.
-    fn lex_string(&mut self, is_single_quotes: bool, _tok_start: usize) -> Result<TokenType> {
+    fn lex_string(&mut self, quote: char, _tok_start: usize) -> Result<TokenType> {
         while let Some(c) = self.next_char() {
-            if (is_single_quotes && c == '\'') || (!is_single_quotes && c == '\"') {
+            if c == quote {
                 return Ok(LiteralString);
             } else if c == '\\' {
                 // TODO make backslash-escapes actually work. For now, we just
@@ -391,6 +395,7 @@ impl Lexer<'_> {
     }
 
     /// Returns the current position of the `Lexer`.
+    #[must_use]
     fn line_and_col(&self, pos: usize) -> (usize, usize) {
         let iter = self.linebreaks.windows(2).enumerate();
         for (line_num, linebreak_pair) in iter {
@@ -405,7 +410,8 @@ impl Lexer<'_> {
         (line_num + 1, column + 1)
     }
 
-    fn end_of_file(&self) -> Token {
+    #[must_use]
+    const fn end_of_file(&self) -> Token {
         Token {
             typ: TokenType::EndOfFile,
             start: self.pos,
@@ -415,6 +421,7 @@ impl Lexer<'_> {
 }
 
 /// Checks if a word is a keyword, then returns the appropriate `TokenType`.
+#[must_use]
 fn keyword_match(s: &str) -> TokenType {
     match s {
         "and" => And,

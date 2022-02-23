@@ -177,6 +177,6 @@ impl LuaType {
 
 impl fmt::Display for LuaType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.as_str())
+        self.as_str().fmt(f)
     }
 }
