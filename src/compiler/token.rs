@@ -19,7 +19,7 @@ pub(super) enum TokenType {
     // Comparisons
     Equal, NotEqual, LessEqual, GreaterEqual, Less, Greater,
     // L/R stuff
-    LParen, RParen, LCurly, RCurly, LSquare, RSquare,
+    LParen, LParenLineStart, RParen, LCurly, RCurly, LSquare, RSquare,
     // Other symbols
     Semi, Colon, Comma, Dot, DotDot, DotDotDot, Assign,
     // Others

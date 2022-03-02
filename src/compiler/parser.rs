@@ -188,7 +188,9 @@ impl<'a> Parser<'a> {
     fn parse_statements(&mut self) -> Result<()> {
         loop {
             match self.input.peek_type()? {
-                TokenType::Identifier | TokenType::LParen => self.parse_assign_or_call()?,
+                TokenType::Identifier | TokenType::LParen | TokenType::LParenLineStart => {
+                    self.parse_assign_or_call()?
+                }
                 TokenType::If => self.parse_if()?,
                 TokenType::While => self.parse_while()?,
                 TokenType::Repeat => self.parse_repeat()?,
@@ -774,7 +776,7 @@ impl<'a> Parser<'a> {
     /// Parses a 'primary' expression. See `parse_prefix_exp` and `parse_expr_base` for details.
     fn parse_primary(&mut self) -> Result<ExpDesc> {
         match self.input.peek_type()? {
-            TokenType::Identifier | TokenType::LParen => {
+            TokenType::Identifier | TokenType::LParen | TokenType::LParenLineStart => {
                 let prefix = self.parse_prefix_exp()?;
                 self.eval_prefix_exp(&prefix);
                 Ok(prefix.into())
@@ -794,7 +796,7 @@ impl<'a> Parser<'a> {
                 let place = self.parse_prefix_identifier(text)?;
                 place.into()
             }
-            TokenType::LParen => {
+            TokenType::LParen | TokenType::LParenLineStart => {
                 self.parse_expr()?;
                 self.expect(TokenType::RParen)?;
                 PrefixExp::Parenthesized
@@ -832,6 +834,10 @@ impl<'a> Parser<'a> {
                 let (num_args, _) = self.parse_call()?;
                 let prefix = PrefixExp::FunctionCall(num_args);
                 self.parse_prefix_extension(prefix)
+            }
+            TokenType::LParenLineStart => {
+                let pos = self.input.next()?.start;
+                Err(self.error_at(SyntaxError::LParenLineStart, pos))
             }
             TokenType::Colon => panic!("Method calls unsupported"),
             TokenType::LiteralString | TokenType::LCurly => {
@@ -885,7 +891,11 @@ impl<'a> Parser<'a> {
 
     /// Parses the parameters in a function definition.
     fn parse_params(&mut self) -> Result<Vec<&'a str>> {
-        self.expect(TokenType::LParen)?;
+        let lparen_tok = self.input.next()?;
+        match lparen_tok.typ {
+            TokenType::LParen | TokenType::LParenLineStart => (),
+            _ => return Err(self.err_unexpected(lparen_tok, TokenType::LParen)),
+        }
         let mut args = Vec::new();
         if self.input.try_pop(TokenType::RParen)?.is_some() {
             return Ok(args);
@@ -1654,5 +1664,22 @@ mod tests {
             ..Chunk::default()
         };
         check_it(text, chunk);
+    }
+
+    #[test]
+    fn test33() {
+        use super::*;
+        let text = "print()\n(foo)()\n";
+        match parse_str(text) {
+            Err(Error {
+                kind: ErrorKind::SyntaxError(SyntaxError::LParenLineStart),
+                line_num,
+                column,
+            }) => {
+                assert_eq!(line_num, 2);
+                assert_eq!(column, 1);
+            }
+            _ => panic!("Should detect ambiguous function call because of linebreak"),
+        }
     }
 }

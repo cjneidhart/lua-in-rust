@@ -112,7 +112,7 @@ impl<'a> Lexer<'a> {
 
     /// Returns the next `Token`.
     pub(super) fn next_token(&mut self) -> Result<Token> {
-        let _starts_line = self.consume_whitespace();
+        let starts_line = self.consume_whitespace();
         let tok_start = self.pos;
         if let Some(first_char) = self.next_char() {
             let tok_type = match first_char {
@@ -125,6 +125,7 @@ impl<'a> Lexer<'a> {
                 ';' => Semi,
                 ':' => Colon,
                 ',' => Comma,
+                '(' if starts_line => LParenLineStart,
                 '(' => LParen,
                 ')' => RParen,
                 '{' => LCurly,
@@ -585,6 +586,24 @@ mod tests {
             (RParen, 36, 1),
         ];
         let linebreaks = &[0, 14, 35, 38];
+        check(input, tokens, linebreaks);
+    }
+
+    #[test]
+    fn test_lexer12() {
+        let input = "print()\n(some_other_function)(an_argument)\n";
+        let tokens = &[
+            (Identifier, 0, 5),
+            (LParen, 5, 1),
+            (RParen, 6, 1),
+            (LParenLineStart, 8, 1),
+            (Identifier, 9, 19),
+            (RParen, 28, 1),
+            (LParen, 29, 1),
+            (Identifier, 30, 11),
+            (RParen, 41, 1),
+        ];
+        let linebreaks = &[0, 8, 43];
         check(input, tokens, linebreaks);
     }
 }

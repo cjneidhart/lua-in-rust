@@ -36,6 +36,7 @@ The goals, in rough order of priority, are:
 - [x] Tables
 - [x] Garbage Collection
 - [x] Full table literals
+- [x] Error when line starts with left paren and parses as function call
 - [ ] Multiple return values
 - [ ] `break` and `continue`
 - [ ] Interned strings

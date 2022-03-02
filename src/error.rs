@@ -7,9 +7,9 @@ use crate::LuaType;
 
 #[derive(Debug)]
 pub struct Error {
-    kind: ErrorKind,
-    line_num: usize,
-    column: usize,
+    pub kind: ErrorKind,
+    pub line_num: usize,
+    pub column: usize,
 }
 
 #[derive(Debug)]
@@ -42,6 +42,7 @@ pub enum SyntaxError {
     UnclosedString,
     UnexpectedEof,
     UnexpectedTok,
+    LParenLineStart,
 }
 
 #[derive(Debug)]
@@ -159,6 +160,7 @@ impl fmt::Display for SyntaxError {
             UnclosedString => write!(f, "unfinished string"),
             UnexpectedEof => write!(f, "unexpected <eof>"),
             UnexpectedTok => write!(f, "syntax error"),
+            LParenLineStart => write!(f, "ambiguous function call"),
         }
     }
 }
