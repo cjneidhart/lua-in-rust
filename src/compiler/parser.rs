@@ -13,7 +13,6 @@ use super::Result;
 
 use std::borrow::Borrow;
 use std::cmp::Ordering;
-use std::mem::swap;
 
 /// Tracks the current state, to make parsing easier.
 #[derive(Debug)]
@@ -23,6 +22,7 @@ struct Parser<'a> {
     chunk: Chunk,
     nest_level: i32,
     locals: Vec<(String, i32)>,
+    outer_chunks: Vec<Chunk>,
 }
 
 /// Parses Lua source code into a `Chunk`.
@@ -32,6 +32,7 @@ pub(super) fn parse_str(source: &str) -> Result<Chunk> {
         chunk: Chunk::default(),
         nest_level: 0,
         locals: Vec::new(),
+        outer_chunks: Vec::new(),
     };
     parser.parse_all()
 }
@@ -155,6 +156,7 @@ impl<'a> Parser<'a> {
     fn parse_all(mut self) -> Result<Chunk> {
         let c = self.parse_chunk(&[])?;
         let token = self.input.next()?;
+        assert_eq!(self.nest_level, 0);
         if let TokenType::EndOfFile = token.typ {
             Ok(c)
         } else {
@@ -164,8 +166,8 @@ impl<'a> Parser<'a> {
 
     /// Parses a `Chunk`.
     fn parse_chunk(&mut self, params: &[&str]) -> Result<Chunk> {
-        let mut tmp_chunk = Chunk::default();
-        swap(&mut tmp_chunk, &mut self.chunk);
+        self.outer_chunks.push(self.chunk.clone());
+        self.chunk = Chunk::default();
 
         self.chunk.num_params = params.len() as u8;
         for &param in params {
@@ -175,7 +177,8 @@ impl<'a> Parser<'a> {
         self.parse_statements()?;
         self.push(Instr::Return(0));
 
-        swap(&mut tmp_chunk, &mut self.chunk);
+        let tmp_chunk = self.chunk.clone();
+        self.chunk = self.outer_chunks.pop().unwrap();
 
         if option_env!("LUA_DEBUG_PARSER").is_some() {
             println!("Compiled chunk: {:#?}", &tmp_chunk);
@@ -523,22 +526,29 @@ impl<'a> Parser<'a> {
 
     /// Parses a `while ... do ... end` statement.
     fn parse_while(&mut self) -> Result<()> {
-        self.input.next()?; // `while` keyword
+        // Structure of while loop instructions:
+        // - Condition instructions
+        // - `BranchFalse` to evaluate condition and skip body
+        // - Body instructions
+        // - `Jump` back to condition start
+        self.input.next()?;
         self.nest_level += 1;
-        let condition_start = self.chunk.code.len() as isize;
+        let condition_start = self.chunk.code.len();
         self.parse_expr()?;
         self.expect(TokenType::Do)?;
-        let mut old_output = Vec::new();
-        swap(&mut self.chunk.code, &mut old_output);
-        self.parse_statements()?;
-        old_output.push(Instr::BranchFalse(self.chunk.code.len() as isize + 1));
-        old_output.append(&mut self.chunk.code);
-        self.chunk.code = old_output;
 
+        let test_position = self.chunk.code.len();
+        self.push(Instr::BranchFalse(0));
+
+        self.parse_statements()?;
         self.expect(TokenType::End)?;
-        self.push(Instr::Jump(
-            condition_start - (self.chunk.code.len() as isize + 1),
-        ));
+
+        let body_end = self.chunk.code.len();
+        self.push(Instr::Jump(-((body_end + 1 - condition_start) as isize)));
+
+        let body_len = body_end - test_position;
+        self.chunk.code[test_position] = Instr::BranchFalse(body_len as isize);
+
         self.level_down();
 
         Ok(())
@@ -1681,5 +1691,27 @@ mod tests {
             }
             _ => panic!("Should detect ambiguous function call because of linebreak"),
         }
+    }
+
+    #[test]
+    fn test34() {
+        let text = "while false do local b end b()";
+        let code = vec![
+            PushBool(false),
+            BranchFalse(3),
+            PushNil,
+            SetLocal(0),
+            Jump(-5),
+            GetGlobal(0),
+            Call(0, 0),
+            Return(0),
+        ];
+        let chunk = Chunk {
+            code,
+            num_locals: 1,
+            string_literals: vec!["b".to_string()],
+            ..Chunk::default()
+        };
+        check_it(text, chunk);
     }
 }
