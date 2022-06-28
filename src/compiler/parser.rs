@@ -626,8 +626,8 @@ impl<'a> Parser<'a> {
     }
 
     /// Parses a comma-separated list of expressions. Trailing and leading
-    /// commas are not allowed. Returns how many expressions were parsed.
-    /// `nvalues` is the expected number of values.
+    /// commas are not allowed. Returns how many expressions were parsed and
+    /// a descriptor of the last expression.
     fn parse_explist(&mut self) -> Result<(u8, ExpDesc)> {
         // An explist has to have at least one expression.
         let mut last_exp_desc = self.parse_expr()?;
