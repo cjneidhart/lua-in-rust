@@ -92,7 +92,7 @@ impl<'a> TokenStream<'a> {
 
     /// Returns a substring from the source code.
     #[must_use]
-    pub(super) fn from_src(&self, index: impl SliceIndex<str, Output = str>) -> &'a str {
+    pub(super) fn substring(&self, index: impl SliceIndex<str, Output = str>) -> &'a str {
         &self.lexer.source[index]
     }
 }

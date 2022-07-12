@@ -16,7 +16,7 @@ use crate::State;
 impl State {
     pub fn check_any(&mut self, arg_number: isize) -> Result<()> {
         assert!(arg_number != 0);
-        if self.get_top() < arg_number.abs() as usize {
+        if self.get_top() < arg_number.unsigned_abs() {
             let e = ArgError {
                 arg_number,
                 func_name: None,
@@ -31,7 +31,7 @@ impl State {
 
     pub fn check_type(&mut self, arg_number: isize, expected_type: LuaType) -> Result<()> {
         assert!(arg_number != 0);
-        if self.get_top() < arg_number.abs() as usize {
+        if self.get_top() < arg_number.unsigned_abs() {
             let e = ArgError {
                 arg_number,
                 func_name: None,

@@ -124,13 +124,13 @@ impl<'a> Parser<'a> {
         assert_eq!(typ, TokenType::LiteralString);
         assert!(len >= 2);
         let range = (start + 1)..(start + len as usize - 1);
-        self.input.from_src(range)
+        self.input.substring(range)
     }
 
     /// Gets the original source code contained by a token.
     #[must_use]
     fn get_text(&self, token: Token) -> &'a str {
-        self.input.from_src(token.range())
+        self.input.substring(token.range())
     }
 
     /// Lowers the nesting level by one, discarding any locals from that block.
