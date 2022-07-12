@@ -42,7 +42,7 @@ strings or both are numbers (strings will be compared lexographically).
 - `__newindex`: Called by `table[key] = value`, same as `__index`.
 
 ### Other
-- `__concat`: `..`. Only called if one value is not a string or number (numbers
+- `__concat`: `..` Only called if one value is not a string or number (numbers
   will be coerced to strings).
 - `__len`: `#`. Only called if the value is not a string. If there's no
   metamethod and it's a table, then it will perform the normal `#` operation.
@@ -56,7 +56,7 @@ strings or both are numbers (strings will be compared lexographically).
   is garbage-collected.
 - `__mode`: Should be a string, not a function. If a table's metatable has
   field `__mode` and that string contains `'k'`, it has weak keys. If the
-  string contains `v`, it has weak values.
+  string contains `'v'`, it has weak values.
 - `__metatable`: Used by `getmetatable` and `setmetatable` in the standard
   library (but not the equivalent functions in the C/Rust API). If this field
   is set, `getmetatable` will return this value instead of the actual

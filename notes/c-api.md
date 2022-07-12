@@ -125,7 +125,7 @@ const char *lua_pushlstring (lua_State *L, const char *s, size_t len);
 void lua_pushnil (lua_State *L);
 void lua_pushnumber (lua_State *L, lua_Number n);
 const char *lua_pushstring (lua_State *L, const char *s);
-int lua_pushthread (lua_State *L);  
+int lua_pushthread (lua_State *L);
 void lua_register(lua_State* L, const char* name, lua_CFunction f);
 ```
 
@@ -206,8 +206,8 @@ lua_Number luaL_optnumber(lua_State* L, int arg, lua_Number d);
 const char* luaL_optstring(lua_State* L, int arg, const char* d);
 
 #define luaL_opt(L, func, arg, dflt) \
-    (lua_isnoneornil(L, (arg))
-        ? (dflt)
+    (lua_isnoneornil(L, (arg)) \
+        ? (dflt) \
         : func(L, (arg)))
 
 void luaL_argcheck(lua_State* L, int cond, int arg, const char* extramsg);
