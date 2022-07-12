@@ -42,6 +42,7 @@ The goals, in rough order of priority, are:
 - [ ] Interned strings
 - [ ] Unparenthesized function calls
 - [ ] Better error messages
+- [ ] Closures
 - [ ] Lua's `next` function
 - [ ] Generic `for` loops
 - [ ] Metatables
