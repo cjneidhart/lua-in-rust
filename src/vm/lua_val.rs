@@ -10,8 +10,9 @@ use std::hash::{Hash, Hasher};
 
 pub type RustFunc = fn(&mut State) -> Result<u8>;
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub(super) enum Val {
+    #[default]
     Nil,
     Bool(bool),
     Num(f64),
@@ -77,12 +78,6 @@ impl fmt::Debug for Val {
             RustFn(func) => write!(f, "<function: {:p}>", func),
             Obj(o) => o.fmt(f),
         }
-    }
-}
-
-impl Default for Val {
-    fn default() -> Self {
-        Nil
     }
 }
 
