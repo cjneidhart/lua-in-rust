@@ -338,3 +338,21 @@ impl fmt::Display for StringPtr {
         f.write_str(self.as_str())
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn gc_test_strings() {
+        let mut gc = GcHeap::with_threshold(2000);
+        gc.new_string("good".into(), || {});
+        assert_eq!(1, gc.strings.len());
+        gc.new_string("good".into(), || {});
+        assert_eq!(1, gc.strings.len());
+        gc.new_string("jorts".into(), || {});
+        assert_eq!(2, gc.strings.len());
+        gc.collect();
+        assert_eq!(0, gc.strings.len());
+    }
+}
