@@ -337,12 +337,12 @@ impl State {
             string_literals,
             ..
         } = self;
-        let obj = self.heap.new_string(s, || {
+        let ptr = self.heap.new_string(s, || {
             stack.mark_reachable();
             globals.mark_reachable();
             string_literals.mark_reachable();
         });
-        Val::Obj(obj)
+        Val::Str(ptr)
     }
 
     fn alloc_table(&mut self) -> Val {
@@ -470,7 +470,7 @@ impl State {
     fn initialize_frame(&mut self, chunk: Chunk) -> Frame {
         let string_literal_start = self.string_literals.len();
         for s in &chunk.string_literals {
-            let obj = {
+            let string_ptr = {
                 let Self {
                     stack,
                     globals,
@@ -483,7 +483,7 @@ impl State {
                     string_literals.mark_reachable();
                 })
             };
-            self.string_literals.push(Val::Obj(obj));
+            self.string_literals.push(Val::Str(string_ptr));
         }
         Frame::new(chunk, string_literal_start)
     }

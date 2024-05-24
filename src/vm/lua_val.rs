@@ -1,4 +1,4 @@
-use super::object::ObjectPtr;
+use super::object::{ObjectPtr, StringPtr};
 use super::Chunk;
 use super::Markable;
 use super::Result;
@@ -16,6 +16,7 @@ pub(super) enum Val {
     Nil,
     Bool(bool),
     Num(f64),
+    Str(StringPtr),
     RustFn(RustFunc),
     Obj(ObjectPtr),
 }
@@ -38,8 +39,8 @@ impl Val {
     }
 
     pub(super) fn as_string(&self) -> Option<&str> {
-        if let Obj(o) = self {
-            o.as_string()
+        if let Str(s) = self {
+            Some(s.as_str())
         } else {
             None
         }
@@ -64,6 +65,7 @@ impl Val {
             Bool(_) => LuaType::Boolean,
             Num(_) => LuaType::Number,
             RustFn(_) => LuaType::Function,
+            Str(_) => LuaType::String,
             Obj(o) => o.typ(),
         }
     }
@@ -77,6 +79,7 @@ impl fmt::Debug for Val {
             Num(n) => n.fmt(f),
             RustFn(func) => write!(f, "<function: {:p}>", func),
             Obj(o) => o.fmt(f),
+            Str(s) => s.fmt(f),
         }
     }
 }
@@ -101,10 +104,7 @@ impl Hash for Val {
         match self {
             Nil => (),
             Bool(b) => b.hash(hasher),
-            Obj(o) => match o.as_string() {
-                Some(s) => s.hash(hasher),
-                None => o.hash(hasher),
-            },
+            Obj(o) => o.hash(hasher),
             Num(n) => {
                 debug_assert!(!n.is_nan(), "Can't hash NaN");
                 let mut bits = n.to_bits();
@@ -112,11 +112,12 @@ impl Hash for Val {
                     bits = 0;
                 }
                 bits.hash(hasher);
-            }
+            },
             RustFn(func) => {
                 let f: *const RustFunc = func;
                 f.hash(hasher);
-            }
+            },
+            Str(s) => s.hash(hasher),
         }
     }
 }
@@ -132,7 +133,8 @@ impl PartialEq for Val {
                 let y: *const RustFunc = b;
                 x == y
             }
-            (Obj(a), Obj(b)) => ObjectPtr::lua_eq(*a, *b),
+            (Obj(a), Obj(b)) => a == b,
+            (Str(a), Str(b)) => StringPtr::eq_physical(a, b),
             _ => false,
         }
     }
@@ -140,8 +142,10 @@ impl PartialEq for Val {
 
 impl Markable for Val {
     fn mark_reachable(&self) {
-        if let Obj(o) = self {
-            o.mark_reachable();
+        match self {
+            Obj(o) => o.mark_reachable(),
+            Str(s) => s.mark_reachable(),
+            _ => (),
         }
     }
 }

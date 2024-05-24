@@ -4,9 +4,11 @@
 //!
 //! Because of this, it needs to be garbage collected.
 
+use std::borrow::Borrow;
 use std::cell::Cell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
+use std::hash::Hash;
 use std::ops::Drop;
 use std::ptr::{self, NonNull};
 
@@ -29,7 +31,6 @@ enum RawObject {
     // Wrap this in a box to reduce the memory usage. Minimal performance impact
     // because functions are rarely accessed.
     LuaFn(Box<Chunk>),
-    Str(String),
     Table(Table),
 }
 
@@ -38,7 +39,6 @@ impl RawObject {
     pub(super) const fn typ(&self) -> LuaType {
         match self {
             RawObject::LuaFn(_) => LuaType::Function,
-            RawObject::Str(_) => LuaType::String,
             RawObject::Table(_) => LuaType::Table,
         }
     }
@@ -58,26 +58,10 @@ impl ObjectPtr {
         }
     }
 
-    pub(super) fn as_string(&self) -> Option<&str> {
-        match &self.deref().raw {
-            RawObject::Str(s) => Some(s),
-            _ => None,
-        }
-    }
-
     pub(super) fn as_table(&mut self) -> Option<&mut Table> {
         match &mut self.deref_mut().raw {
             RawObject::Table(t) => Some(t),
             _ => None,
-        }
-    }
-
-    /// Returns whether the contained values are equal, according to Lua's
-    /// `==` operator.
-    pub(super) fn lua_eq(self, other: Self) -> bool {
-        match (self.as_string(), other.as_string()) {
-            (Some(s1), Some(s2)) => s1 == s2,
-            _ => self == other,
         }
     }
 
@@ -98,7 +82,6 @@ impl fmt::Display for ObjectPtr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.deref().raw {
             RawObject::LuaFn(_) => write!(f, "function: {:p}", self.ptr),
-            RawObject::Str(s) => s.fmt(f),
             RawObject::Table(_) => write!(f, "table: {:p}", self.ptr),
         }
     }
@@ -118,6 +101,8 @@ pub(super) struct GcHeap {
     size: usize,
     /// When the heap grows this large, run the GC.
     threshold: usize,
+    /// The collection of interned Strings.
+    strings: HashSet<StringPtr>,
 }
 
 impl GcHeap {
@@ -127,6 +112,7 @@ impl GcHeap {
             start: ptr::null_mut(),
             size: 0,
             threshold,
+            strings: HashSet::new(),
         }
     }
 
@@ -158,6 +144,24 @@ impl GcHeap {
                 }
             }
         }
+
+        let mut strings_to_remove = Vec::new();
+        for ptr in &self.strings {
+            let val = unsafe { ptr.0.as_ref() };
+            match val.color.get() {
+                Color::Reachable => {
+                    val.color.set(Color::Unmarked);
+                }
+                Color::Unmarked => {
+                    strings_to_remove.push(ptr.clone());
+                }
+            }
+        }
+        for ptr in strings_to_remove {
+            self.strings.remove(&ptr);
+            let _boxed = unsafe { Box::from_raw(ptr.0.as_ptr()) };
+        }
+
         self.threshold = self.size * 2;
     }
 
@@ -171,9 +175,22 @@ impl GcHeap {
         self.new_obj_from_raw(raw, mark)
     }
 
-    pub(super) fn new_string(&mut self, s: String, mark: impl FnOnce()) -> ObjectPtr {
-        let raw = RawObject::Str(s);
-        self.new_obj_from_raw(raw, mark)
+    pub(super) fn new_string(&mut self, s: String, mark: impl FnOnce()) -> StringPtr {
+        if let Some(ptr) = self.strings.get(s.as_str()) {
+            ptr.clone()
+        } else {
+            if self.is_full() {
+                mark();
+                self.collect();
+            }
+            let boxed = Box::new(MarkedString {
+                data: s,
+                color: Cell::new(Color::Unmarked),
+            });
+            let ptr = StringPtr(NonNull::new(Box::into_raw(boxed)).unwrap());
+            self.strings.insert(ptr.clone());
+            ptr
+        }
     }
 
     pub(super) fn new_table(&mut self, mark: impl FnOnce()) -> ObjectPtr {
@@ -213,6 +230,9 @@ impl Drop for GcHeap {
             next_ptr = boxed.next;
             // Now the boxed object is dropped.
         }
+        for ptr in self.strings.drain() {
+            let _boxed = unsafe { Box::from_raw(ptr.0.as_ptr()) };
+        }
     }
 }
 
@@ -235,7 +255,7 @@ impl Markable for WrappedObject {
 impl Markable for RawObject {
     fn mark_reachable(&self) {
         match self {
-            RawObject::LuaFn(_) | RawObject::Str(_) => (),
+            RawObject::LuaFn(_) => (),
             RawObject::Table(tbl) => tbl.mark_reachable(),
         }
     }
@@ -263,5 +283,58 @@ impl<K, V: Markable> Markable for HashMap<K, V> {
         for val in self.values() {
             val.mark_reachable();
         }
+    }
+}
+
+struct MarkedString {
+    data: String,
+    color: Cell<Color>,
+}
+
+/// Wrapper type around a pointer to a String.
+/// Behaves like a String for the purposes of Hashing and Equality.
+#[derive(Clone, Debug)]
+pub(crate) struct StringPtr(NonNull<MarkedString>);
+
+impl StringPtr {
+    #[must_use]
+    pub(crate) fn eq_physical(a: &Self, b: &Self) -> bool {
+        a.0 == b.0
+    }
+
+    #[must_use]
+    pub(crate) fn as_str(&self) -> &str {
+        &(unsafe { self.0.as_ref() }).data
+    }
+}
+
+impl Borrow<str> for StringPtr {
+    fn borrow(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl Hash for StringPtr {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.as_str().hash(state);
+    }
+}
+
+impl PartialEq for StringPtr {
+    fn eq(&self, other: &Self) -> bool {
+        self.as_str() == other.as_str()
+    }
+}
+impl Eq for StringPtr {}
+
+impl Markable for StringPtr {
+    fn mark_reachable(&self) {
+        unsafe { self.0.as_ref().color.set(Color::Reachable) }
+    }
+}
+
+impl fmt::Display for StringPtr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
     }
 }
